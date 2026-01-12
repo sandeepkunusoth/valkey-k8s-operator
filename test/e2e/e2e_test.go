@@ -593,6 +593,8 @@ spec:
 			}
 			Eventually(verifyClusterReady).Should(Succeed())
 
+			time.Sleep(3 * time.Second)
+
 			By("getting a deployment to delete")
 			var deploymentToDelete string
 			getDeployment := func(g Gomega) {
