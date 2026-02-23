@@ -78,9 +78,6 @@ func generateMetricsExporterContainerDef(cluster *valkeyiov1alpha1.ValkeyCluster
 		certPath = fmt.Sprintf("%s/%s", tlsCertMountPath, certName)
 		keyPath = fmt.Sprintf("%s/%s", tlsCertMountPath, keyName)
 		caPath = fmt.Sprintf("%s/%s", tlsCertMountPath, caName)
-	}
-
-	if tlsEnabled {
 		volumeMounts = []corev1.VolumeMount{
 			{
 				Name:      "tls-certs",
