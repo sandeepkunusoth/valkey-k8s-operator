@@ -31,15 +31,60 @@ func generateContainersDef(cluster *valkeyiov1alpha1.ValkeyCluster) []corev1.Con
 	if cluster.Spec.Image != "" {
 		image = cluster.Spec.Image
 	}
+	var valkeyArgs []string
+	var envVars []corev1.EnvVar
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "scripts",
+			MountPath: "/scripts",
+		},
+		{
+			Name:      "valkey-conf",
+			MountPath: "/config",
+			ReadOnly:  true,
+		},
+	}
+
+	if cluster.Spec.TLS != nil && cluster.Spec.TLS.Enabled {
+		certName, keyName, caName := getTLSFileNames(cluster.Spec.TLS)
+		certPath := fmt.Sprintf("%s/%s", tlsCertMountPath, certName)
+		keyPath := fmt.Sprintf("%s/%s", tlsCertMountPath, keyName)
+		caPath := fmt.Sprintf("%s/%s", tlsCertMountPath, caName)
+
+		valkeyArgs = []string{
+			"--tls-port", fmt.Sprintf("%d", DefaultPort),
+			"--port", "0",
+			"--tls-cluster", "yes",
+			"--tls-replication", "yes",
+			"--tls-cert-file", certPath,
+			"--tls-key-file", keyPath,
+			"--tls-ca-cert-file", caPath,
+		}
+
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "VALKEY_TLS_ARGS",
+			Value: fmt.Sprintf("--tls --cert %s --key %s --cacert %s", certPath, keyPath, caPath),
+		})
+
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      "tls-certs",
+			MountPath: tlsCertMountPath,
+			ReadOnly:  true,
+		})
+	}
+
+	command := append([]string{
+		"valkey-server",
+		"/config/valkey.conf",
+	}, valkeyArgs...)
+
 	containers := []corev1.Container{
 		{
 			Name:      "valkey-server",
 			Image:     image,
 			Resources: cluster.Spec.Resources,
-			Command: []string{
-				"valkey-server",
-				"/config/valkey.conf",
-			},
+			Command:   command,
+			Env:       envVars,
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "client",
@@ -98,17 +143,7 @@ func generateContainersDef(cluster *valkeyiov1alpha1.ValkeyCluster) []corev1.Con
 					},
 				},
 			},
-			VolumeMounts: []corev1.VolumeMount{
-				{
-					Name:      "scripts",
-					MountPath: "/scripts",
-				},
-				{
-					Name:      "valkey-conf",
-					MountPath: "/config",
-					ReadOnly:  true,
-				},
-			},
+			VolumeMounts: volumeMounts,
 		},
 	}
 
@@ -146,6 +181,41 @@ func createClusterDeployment(cluster *valkeyiov1alpha1.ValkeyCluster, shardIndex
 	nodeLabels[LabelShardIndex] = strconv.Itoa(shardIndex)
 	nodeLabels[LabelNodeIndex] = strconv.Itoa(nodeIndex)
 
+	volumes := []corev1.Volume{
+		{
+			Name: "scripts",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: cluster.Name,
+					},
+					DefaultMode: func(i int32) *int32 { return &i }(0755),
+				},
+			},
+		},
+		{
+			Name: "valkey-conf",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: cluster.Name,
+					},
+				},
+			},
+		},
+	}
+
+	if cluster.Spec.TLS != nil && cluster.Spec.TLS.Enabled {
+		volumes = append(volumes, corev1.Volume{
+			Name: "tls-certs",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: cluster.Spec.TLS.ExistingSecret,
+				},
+			},
+		})
+	}
+
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName(cluster.Name, shardIndex, nodeIndex),
@@ -166,29 +236,7 @@ func createClusterDeployment(cluster *valkeyiov1alpha1.ValkeyCluster, shardIndex
 					Affinity:     cluster.Spec.Affinity,
 					NodeSelector: cluster.Spec.NodeSelector,
 					Tolerations:  cluster.Spec.Tolerations,
-					Volumes: []corev1.Volume{
-						{
-							Name: "scripts",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name,
-									},
-									DefaultMode: func(i int32) *int32 { return &i }(0755),
-								},
-							},
-						},
-						{
-							Name: "valkey-conf",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: cluster.Name,
-									},
-								},
-							},
-						},
-					},
+					Volumes:      volumes,
 				},
 			},
 		},

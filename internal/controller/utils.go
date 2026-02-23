@@ -17,14 +17,39 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	valkeyv1 "valkey.io/valkey-operator/api/v1alpha1"
 	"valkey.io/valkey-operator/internal/valkey"
 )
+
+// getTLSFileNames returns the parsed cert, key, and ca file names for a Valkey cluster.
+func getTLSFileNames(tls *valkeyv1.TLSConfig) (string, string, string) {
+	if tls == nil || !tls.Enabled {
+		return "", "", ""
+	}
+	cert := tls.Cert
+	if cert == "" {
+		cert = "server.crt"
+	}
+	key := tls.Key
+	if key == "" {
+		key = "server.key"
+	}
+	ca := tls.CA
+	if ca == "" {
+		ca = "ca.crt"
+	}
+	return cert, key, ca
+}
 
 const appName = "valkey"
 
@@ -62,6 +87,9 @@ const (
 	// Node 0 is the initial primary; nodes 1+ are replicas. Together with
 	// LabelShardIndex this forms a unique selector per Deployment.
 	LabelNodeIndex = "valkey.io/node-index"
+
+	// tlsCertMountPath is the path where TLS certificates are mounted inside containers
+	tlsCertMountPath = "/tls"
 )
 
 // Role label values.
@@ -180,4 +208,40 @@ func pickPendingNode(nodes []*valkey.NodeState, pods *corev1.PodList) *valkey.No
 		}
 	}
 	return nodes[0]
+}
+
+// GetTLSConfig creates a tls.Config from the cluster's TLS secret.
+func GetTLSConfig(ctx context.Context, c client.Client, cluster *valkeyv1.ValkeyCluster) (*tls.Config, error) {
+	if cluster.Spec.TLS == nil || !cluster.Spec.TLS.Enabled {
+		return nil, nil
+	}
+
+	secret := &corev1.Secret{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: cluster.Spec.TLS.ExistingSecret}, secret); err != nil {
+		return nil, fmt.Errorf("failed to get TLS secret: %w", err)
+	}
+
+	certKey, keyKey, caKey := getTLSFileNames(cluster.Spec.TLS)
+
+	certData, certOk := secret.Data[certKey]
+	keyData, keyOk := secret.Data[keyKey]
+	caData, caOk := secret.Data[caKey]
+
+	if !certOk || !keyOk || !caOk {
+		return nil, fmt.Errorf("TLS secret is missing required keys: cert=%v, key=%v, ca=%v", certOk, keyOk, caOk)
+	}
+
+	cert, err := tls.X509KeyPair(certData, keyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TLS key pair: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caData)
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: true,
+	}, nil
 }

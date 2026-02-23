@@ -40,7 +40,7 @@ function timeout {
 # Perform check
 response=$(
     timeout $timeout \
-    valkey-cli -h localhost -p $port PING)
+    valkey-cli -h localhost -p $port $VALKEY_TLS_ARGS PING)
 
 responseFirstWord=$(echo "$response" | head -n1 | awk '{print $1;}')
 if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then

@@ -65,6 +65,7 @@ var scripts embed.FS
 // +kubebuilder:rbac:groups=valkey.io,resources=valkeyclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
@@ -112,6 +113,12 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	if err := r.upsertTLSCertificate(ctx, cluster); err != nil {
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonTLSCertificateError, err.Error(), metav1.ConditionFalse)
+		_ = r.updateStatus(ctx, cluster, nil)
+		return ctrl.Result{}, err
+	}
+
 	if err := r.upsertDeployments(ctx, cluster); err != nil {
 		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonDeploymentError, err.Error(), metav1.ConditionFalse)
 		_ = r.updateStatus(ctx, cluster, nil)
@@ -126,7 +133,7 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{}, err
 	}
-	state := r.getValkeyClusterState(ctx, pods)
+	state := r.getValkeyClusterState(ctx, cluster, pods)
 	defer state.CloseClients()
 
 	// Check if we need to forget stale non-existing nodes
@@ -227,6 +234,33 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	log.V(1).Info("reconcile done")
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+// upsertTLSCertificate will create or update the TLS certificate for the cluster
+// It will return the existing secret name if it exists, otherwise it should create a new Certificate
+// TODO create Certificate CR for server and client based on issuerRef specified in the cluster spec
+func (r *ValkeyClusterReconciler) upsertTLSCertificate(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) error {
+	if cluster.Spec.TLS == nil || !cluster.Spec.TLS.Enabled {
+		return nil
+	}
+
+	if cluster.Spec.TLS.ExistingSecret == "" {
+		// TODO: cert-manager integration
+		err := errors.New("tls.existingSecret is required when tls.enabled is true")
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, "InvalidTLSSecret", err.Error(), metav1.ConditionFalse)
+		_ = r.updateStatus(ctx, cluster, nil)
+		return err
+	}
+
+	_, err := GetTLSConfig(ctx, r.Client, cluster)
+	if err != nil {
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, "InvalidTLSSecret", err.Error(), metav1.ConditionFalse)
+		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "InvalidTLSSecret", "ValidateTLS", "%v", err.Error())
+		_ = r.updateStatus(ctx, cluster, nil)
+		return err
+	}
+
+	return nil
 }
 
 // Create or update a headless service (client connects to pods directly)
@@ -368,7 +402,7 @@ func (r *ValkeyClusterReconciler) ensureDeployment(ctx context.Context, cluster 
 	return nil
 }
 
-func (r *ValkeyClusterReconciler) getValkeyClusterState(ctx context.Context, pods *corev1.PodList) *valkey.ClusterState {
+func (r *ValkeyClusterReconciler) getValkeyClusterState(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster, pods *corev1.PodList) *valkey.ClusterState {
 	// Create a list of addresses to possible Valkey nodes
 	ips := []string{}
 	for _, pod := range pods.Items {
@@ -378,8 +412,13 @@ func (r *ValkeyClusterReconciler) getValkeyClusterState(ctx context.Context, pod
 		ips = append(ips, pod.Status.PodIP)
 	}
 
+	tlsCfg, err := GetTLSConfig(ctx, r.Client, cluster)
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to build TLS config for valkey client")
+	}
+
 	// Get current state of the Valkey cluster
-	return valkey.GetClusterState(ctx, ips, DefaultPort)
+	return valkey.GetClusterState(ctx, ips, DefaultPort, tlsCfg)
 }
 
 // addValkeyNode introduces a pending Valkey node into the cluster. The node's
