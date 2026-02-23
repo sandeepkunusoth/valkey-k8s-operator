@@ -182,6 +182,8 @@ const (
 	ReasonServiceError        = "ServiceError"
 	ReasonConfigMapError      = "ConfigMapError"
 	ReasonTLSCertificateError = "TLSCertificateError"
+    ReasonInvalidTLSSecret  = "InvalidTLSSecret"
+    ReasonMissingTLSSecret  = "MissingTLSSecret"
 	ReasonDeploymentError     = "DeploymentError"
 	ReasonPodListError        = "PodListError"
 	ReasonAddingNodes         = "AddingNodes"
