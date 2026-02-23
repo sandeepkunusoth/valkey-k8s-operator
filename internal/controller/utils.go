@@ -33,19 +33,19 @@ import (
 )
 
 // getTLSFileNames returns the parsed cert, key, and ca file names for a Valkey cluster.
-func getTLSFileNames(tls *valkeyv1.TLSConfig) (string, string, string) {
-	if tls == nil || !tls.Enabled {
+func getTLSFileNames(tlsConfig *valkeyv1.TLSConfig) (string, string, string) {
+	if tlsConfig == nil || !tlsConfig.Enabled {
 		return "", "", ""
 	}
-	cert := tls.Cert
+	cert := tlsConfig.Cert
 	if cert == "" {
 		cert = "server.crt"
 	}
-	key := tls.Key
+	key := tlsConfig.Key
 	if key == "" {
 		key = "server.key"
 	}
-	ca := tls.CA
+	ca := tlsConfig.CA
 	if ca == "" {
 		ca = "ca.crt"
 	}

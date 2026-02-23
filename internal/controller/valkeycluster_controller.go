@@ -124,7 +124,6 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if err := r.upsertTLSCertificate(ctx, cluster); err != nil {
-		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonTLSCertificateError, err.Error(), metav1.ConditionFalse)
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{}, err
 	}
@@ -293,16 +292,18 @@ func (r *ValkeyClusterReconciler) upsertTLSCertificate(ctx context.Context, clus
 	if cluster.Spec.TLS.ExistingSecret == "" {
 		// TODO: cert-manager integration
 		err := errors.New("tls.existingSecret is required when tls.enabled is true")
-		setCondition(cluster, valkeyiov1alpha1.ConditionReady, "InvalidTLSSecret", err.Error(), metav1.ConditionFalse)
-		_ = r.updateStatus(ctx, cluster, nil)
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonInvalidTLSSecret, err.Error(), metav1.ConditionFalse)
 		return err
 	}
 
 	_, err := GetTLSConfig(ctx, r.Client, cluster)
 	if err != nil {
-		setCondition(cluster, valkeyiov1alpha1.ConditionReady, "InvalidTLSSecret", err.Error(), metav1.ConditionFalse)
-		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "InvalidTLSSecret", "ValidateTLS", "%v", err.Error())
-		_ = r.updateStatus(ctx, cluster, nil)
+		reason := valkeyiov1alpha1.ReasonInvalidTLSSecret
+		if apierrors.IsNotFound(err) {
+			reason = valkeyiov1alpha1.ReasonMissingTLSSecret
+		}
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, reason, err.Error(), metav1.ConditionFalse)
+		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, reason, "ValidateTLS", "%v", err.Error())
 		return err
 	}
 
