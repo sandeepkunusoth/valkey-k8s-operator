@@ -70,9 +70,11 @@ spec:
 			Expect(err).NotTo(HaveOccurred(), "Failed to write issuer manifest")
 			defer os.Remove(issuerFile)
 
-			cmd := exec.Command("kubectl", "create", "-f", issuerFile)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create Issuer and Certificate")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", issuerFile)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to create Issuer and Certificate")
+			}).Should(Succeed())
 			defer func() {
 				cmd := exec.Command("kubectl", "delete", "-f", issuerFile, "--ignore-not-found=true")
 				utils.Run(cmd)
@@ -108,11 +110,11 @@ spec:
 			Expect(err).NotTo(HaveOccurred(), "Failed to write manifest file")
 			defer os.Remove(manifestFile)
 
-			cmd = exec.Command("kubectl", "create", "-f", manifestFile)
+			cmd := exec.Command("kubectl", "create", "-f", manifestFile)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create ValkeyCluster CR")
 			defer func() {
-				cmd = exec.Command("kubectl", "delete", "valkeycluster", valkeyName, "--ignore-not-found=true")
+				cmd := exec.Command("kubectl", "delete", "valkeycluster", valkeyName, "--ignore-not-found=true")
 				utils.Run(cmd)
 			}()
 
