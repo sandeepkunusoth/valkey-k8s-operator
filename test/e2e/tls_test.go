@@ -259,6 +259,16 @@ spec:
 				g.Expect(output).To(ContainSubstring("MissingTLSSecret"))
 			}).Should(Succeed())
 
+			By("validating the error message for missing secret")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "valkeycluster", valkeyName,
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].message}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("failed to get TLS secret"))
+			}).Should(Succeed())
+
 			By("Cleaning up test resources")
 			cmd = exec.Command("kubectl", "delete", "valkeycluster", valkeyName, "--ignore-not-found=true")
 			utils.Run(cmd)
@@ -273,8 +283,8 @@ kind: ValkeyCluster
 metadata:
   name: %s
 spec:
-  shards: 3
-  replicas: 1
+  shards: 1
+  replicas: 0
   tls:
     enabled: true
 `, valkeyName)
@@ -297,6 +307,16 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(ContainSubstring("InvalidTLSSecret"))
+			}).Should(Succeed())
+
+			By("validating the error message for missing secret name")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "valkeycluster", valkeyName,
+					"-o", "jsonpath={.status.conditions[?(@.type=='Ready')].message}",
+				)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("tls.existingSecret is required"))
 			}).Should(Succeed())
 
 			By("Cleaning up test resources")

@@ -27,7 +27,7 @@ import (
 // getExporterEnvironmentVariables returns the environment variables for the Redis Exporter container.
 // The Redis address is set to the Redis host and port, and TLS configuration is set if enabled.
 // The function returns list of environment variables.
-func getExporterEnvironmentVariables(valkeyName string, tlsEnabled bool, certPath, keyPath, caPath string) []corev1.EnvVar {
+func getExporterEnvironmentVariables(tlsEnabled bool, certPath, keyPath, caPath string) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	redisHost := "redis://localhost"
 	if tlsEnabled {
@@ -89,7 +89,7 @@ func generateMetricsExporterContainerDef(cluster *valkeyiov1alpha1.ValkeyCluster
 			},
 		}
 	}
-	envVars := getExporterEnvironmentVariables(cluster.Name, tlsEnabled, certPath, keyPath, caPath)
+	envVars := getExporterEnvironmentVariables(tlsEnabled, certPath, keyPath, caPath)
 	return corev1.Container{
 		Name:         "metrics-exporter",
 		Image:        exporterImage,
