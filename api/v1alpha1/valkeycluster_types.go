@@ -82,6 +82,7 @@ type ValkeyClusterSpec struct {
 // TLSConfig defines the TLS configuration for a Valkey cluster.
 type TLSConfig struct {
 	// Enable TLS
+	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty"`
 
 	// Name of the Secret containing TLS keys
