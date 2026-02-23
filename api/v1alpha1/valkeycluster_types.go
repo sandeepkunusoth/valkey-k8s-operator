@@ -198,6 +198,8 @@ const (
 	ReasonPrimaryLost         = "PrimaryLost"
 	ReasonNoSlots             = "NoSlotsAvailable"
 	ReasonUsersAclError       = "UsersACLError"
+	ReasonInvalidTLSSecret    = "InvalidTLSSecret"
+	ReasonMissingTLSSecret    = "MissingTLSSecret"
 )
 
 // +kubebuilder:object:root=true
