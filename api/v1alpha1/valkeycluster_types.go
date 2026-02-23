@@ -78,6 +78,40 @@ type ValkeyClusterSpec struct {
 	// +listType=map
 	// +listMapKey=name
 	Users []UserAclSpec `json:"users,omitempty"`
+
+	// TLS configuration
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
+}
+
+// TLSConfig defines the TLS configuration for a Valkey cluster.
+type TLSConfig struct {
+	// Enable TLS
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Name of the Secret containing TLS keys
+	ExistingSecret string `json:"existingSecret,omitempty"`
+
+	// Secret key name containing server public certificate (default=server.crt)
+	// +kubebuilder:default=server.crt
+	Cert string `json:"cert,omitempty"`
+
+	// Secret key name containing server private key (default=server.key)
+	// +kubebuilder:default=server.key
+	Key string `json:"key,omitempty"`
+
+	// Secret key name containing Certificate Authority public certificate (default=ca.crt)
+	// +kubebuilder:default=ca.crt
+	CA string `json:"ca,omitempty"`
+
+	// TODO: cert-manager integration and rotation
+	// IssuerRef references a cert-manager Issuer or ClusterIssuer.
+	IssuerRef *IssuerRef `json:"issuerRef,omitempty"`
+}
+
+type IssuerRef struct {
+	Name string `json:"name"`
+	Kind string `json:"kind,omitempty"`
 }
 
 type ExporterSpec struct {
@@ -142,24 +176,25 @@ const (
 
 const (
 	// Common reasons for conditions
-	ReasonInitializing      = "Initializing"
-	ReasonReconciling       = "Reconciling"
-	ReasonClusterHealthy    = "ClusterHealthy"
-	ReasonServiceError      = "ServiceError"
-	ReasonConfigMapError    = "ConfigMapError"
-	ReasonDeploymentError   = "DeploymentError"
-	ReasonPodListError      = "PodListError"
-	ReasonAddingNodes       = "AddingNodes"
-	ReasonNodeAddFailed     = "NodeAddFailed"
-	ReasonMissingShards     = "MissingShards"
-	ReasonMissingReplicas   = "MissingReplicas"
-	ReasonReconcileComplete = "ReconcileComplete"
-	ReasonTopologyComplete  = "TopologyComplete"
-	ReasonAllSlotsAssigned  = "AllSlotsAssigned"
-	ReasonSlotsUnassigned   = "SlotsUnassigned"
-	ReasonPrimaryLost       = "PrimaryLost"
-	ReasonNoSlots           = "NoSlotsAvailable"
-	ReasonUsersAclError     = "UsersACLError"
+	ReasonInitializing        = "Initializing"
+	ReasonReconciling         = "Reconciling"
+	ReasonClusterHealthy      = "ClusterHealthy"
+	ReasonServiceError        = "ServiceError"
+	ReasonConfigMapError      = "ConfigMapError"
+	ReasonTLSCertificateError = "TLSCertificateError"
+	ReasonDeploymentError     = "DeploymentError"
+	ReasonPodListError        = "PodListError"
+	ReasonAddingNodes         = "AddingNodes"
+	ReasonNodeAddFailed       = "NodeAddFailed"
+	ReasonMissingShards       = "MissingShards"
+	ReasonMissingReplicas     = "MissingReplicas"
+	ReasonReconcileComplete   = "ReconcileComplete"
+	ReasonTopologyComplete    = "TopologyComplete"
+	ReasonAllSlotsAssigned    = "AllSlotsAssigned"
+	ReasonSlotsUnassigned     = "SlotsUnassigned"
+	ReasonPrimaryLost         = "PrimaryLost"
+	ReasonNoSlots             = "NoSlotsAvailable"
+	ReasonUsersAclError       = "UsersACLError"
 )
 
 // +kubebuilder:object:root=true

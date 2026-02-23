@@ -40,7 +40,7 @@ function timeout {
 # Perform checks
 response=$(
     timeout $timeout \
-    valkey-cli -h localhost -p $port PING)
+    valkey-cli -h localhost -p $port $VALKEY_TLS_ARGS PING)
 
 if [ "$response" != "PONG" ]; then
     echo "$response" >&2
@@ -51,7 +51,7 @@ fi
 # if [ ! -f "$valkey_status_file" ]; then
 #     response=$(
 #         timeout $timeout \
-#         valkey-cli -h localhost -p $port CLUSTER INFO | grep cluster_state | tr -d '[:space:]')
+#         valkey-cli -h localhost -p $port $VALKEY_TLS_ARGS CLUSTER INFO | grep cluster_state | tr -d '[:space:]')
 
 #     if [ "$response" != "cluster_state:ok" ]; then
 #         echo "$response" >&2

@@ -1124,6 +1124,40 @@ spec:
                 format: int32
                 minimum: 1
                 type: integer
+              tls:
+                description: TLS configuration
+                properties:
+                  ca:
+                    default: ca.crt
+                    description: Secret key name containing Certificate Authority
+                      public certificate (default=ca.crt)
+                    type: string
+                  cert:
+                    default: server.crt
+                    description: Secret key name containing server public certificate
+                      (default=server.crt)
+                    type: string
+                  enabled:
+                    description: Enable TLS
+                    type: boolean
+                  existingSecret:
+                    description: Name of the Secret containing TLS keys
+                    type: string
+                  issuerRef:
+                    description: IssuerRef references a cert-manager Issuer or ClusterIssuer.
+                    properties:
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  key:
+                    default: server.key
+                    description: Secret key name containing server private key (default=server.key)
+                    type: string
+                type: object
               tolerations:
                 description: Tolerations to apply to the pods
                 items:
