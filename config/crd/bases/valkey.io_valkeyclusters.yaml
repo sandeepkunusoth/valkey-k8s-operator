@@ -1138,6 +1138,7 @@ spec:
                       (default=server.crt)
                     type: string
                   enabled:
+                    default: false
                     description: Enable TLS
                     type: boolean
                   existingSecret:
