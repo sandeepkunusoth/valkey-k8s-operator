@@ -196,20 +196,6 @@ func findShardPrimary(state *valkey.ClusterState, shardIndex int, pods *corev1.P
 	return "", ""
 }
 
-// pickPendingNode selects the next pending node to process, prioritizing
-// primaries (node index 0) over replicas. This ensures primaries get slots
-// before replicas try to attach, since CLUSTER REPLICATE needs the primary
-// to already be in state.Shards.
-func pickPendingNode(nodes []*valkey.NodeState, pods *corev1.PodList) *valkey.NodeState {
-	for _, n := range nodes {
-		role, _ := podRoleAndShard(n.Address, pods)
-		if role == RolePrimary {
-			return n
-		}
-	}
-	return nodes[0]
-}
-
 // GetTLSConfig creates a tls.Config from the cluster's TLS secret.
 func GetTLSConfig(ctx context.Context, c client.Client, cluster *valkeyv1.ValkeyCluster) (*tls.Config, error) {
 	if cluster.Spec.TLS == nil || !cluster.Spec.TLS.Enabled {
