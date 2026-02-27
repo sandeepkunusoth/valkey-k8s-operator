@@ -74,6 +74,11 @@ type ValkeyClusterSpec struct {
 	// +optional
 	Exporter ExporterSpec `json:"exporter,omitempty"`
 
+	// Users, and ACL-related configuration; see valkeyacls_types.go
+	// +listType=map
+	// +listMapKey=name
+	Users []UserAclSpec `json:"users,omitempty"`
+
 	// TLS configuration
 	// +optional
 	TLS *TLSConfig `json:"tls,omitempty"`
@@ -191,6 +196,7 @@ const (
 	ReasonSlotsUnassigned   = "SlotsUnassigned"
 	ReasonPrimaryLost       = "PrimaryLost"
 	ReasonNoSlots           = "NoSlotsAvailable"
+	ReasonUsersAclError     = "UsersACLError"
 )
 
 // +kubebuilder:object:root=true
