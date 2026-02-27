@@ -43,6 +43,45 @@ func TestParseSlotsRange(t *testing.T) {
 	}
 }
 
+func TestParseSlotsRanges(t *testing.T) {
+	ranges, err := parseSlotsRanges([]string{"0-5460", "5461-10922", "10923-16383"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := []SlotsRange{{0, 5460}, {5461, 10922}, {10923, 16383}}
+	if !reflect.DeepEqual(ranges, expected) {
+		t.Errorf("expected %v, got %v", expected, ranges)
+	}
+
+	// Migrating/importing entries from CLUSTER NODES should be skipped.
+	ranges, err = parseSlotsRanges([]string{"0-5460", "[5461->-abc123]", "[5462-<-def456]"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected = []SlotsRange{{0, 5460}}
+	if !reflect.DeepEqual(ranges, expected) {
+		t.Errorf("expected %v, got %v", expected, ranges)
+	}
+
+	// Empty input.
+	ranges, err = parseSlotsRanges([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ranges) != 0 {
+		t.Errorf("expected empty, got %v", ranges)
+	}
+
+	// Only migration entries — should return empty.
+	ranges, err = parseSlotsRanges([]string{"[5461->-abc123]"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ranges) != 0 {
+		t.Errorf("expected empty, got %v", ranges)
+	}
+}
+
 func TestSubtractSlotsRange(t *testing.T) {
 	base := SlotsRange{0, 16383}
 	remove := SlotsRange{10, 16380}

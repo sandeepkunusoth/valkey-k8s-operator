@@ -300,6 +300,13 @@ func parseSlotsRanges(s []string) ([]SlotsRange, error) {
 	ranges := []SlotsRange{}
 
 	for _, part := range s {
+		// During active slot migration, CLUSTER NODES appends entries like
+		// "[5461->-abc123]" (migrating) or "[5461-<-abc123]" (importing) to the
+		// slot fields. GetSlots() returns fields[8:] verbatim, so these entries
+		// can appear here. Skip them — they aren't assignable slot ranges.
+		if strings.HasPrefix(part, "[") {
+			continue
+		}
 		r, err := parseSlotsRange(part)
 		if err != nil {
 			return nil, err
