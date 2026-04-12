@@ -238,11 +238,11 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 			}
 			containers[i].Env = append(containers[i].Env,
 				corev1.EnvVar{Name: "VALKEY_TLS_ENABLED", Value: "true"},
-				corev1.EnvVar{Name: "VALKEY_TLS_CA_FILE", Value: tlsCertMountPath + "/ca.crt"},
-				corev1.EnvVar{Name: "VALKEY_TLS_CERT_FILE", Value: tlsCertMountPath + "/tls.crt"},
-				corev1.EnvVar{Name: "VALKEY_TLS_KEY_FILE", Value: tlsCertMountPath + "/tls.key"},
+				corev1.EnvVar{Name: "VALKEY_TLS_CA_FILE", Value: tlsCertMountPath + "/" + tlsSecretKeyCA},
+				corev1.EnvVar{Name: "VALKEY_TLS_CERT_FILE", Value: tlsCertMountPath + "/" + tlsSecretKeyCert},
+				corev1.EnvVar{Name: "VALKEY_TLS_KEY_FILE", Value: tlsCertMountPath + "/" + tlsSecretKeyKey},
 				corev1.EnvVar{Name: "VALKEY_TLS_ARGS", Value: fmt.Sprintf("--tls --cacert %s --cert %s --key %s",
-					tlsCertMountPath+"/ca.crt", tlsCertMountPath+"/tls.crt", tlsCertMountPath+"/tls.key")},
+					tlsCertMountPath+"/"+tlsSecretKeyCA, tlsCertMountPath+"/"+tlsSecretKeyCert, tlsCertMountPath+"/"+tlsSecretKeyKey)},
 			)
 		}
 	}
