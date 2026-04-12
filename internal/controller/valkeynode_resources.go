@@ -210,13 +210,45 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 					MountPath: "/config",
 					ReadOnly:  true,
 				},
+				{
+					Name:      "data",
+					MountPath: "/data",
+				},
 			},
 		},
 	}
 
 	// Add exporter sidecar if enabled.
 	if node.Spec.Exporter.Enabled {
-		containers = append(containers, generateMetricsExporterContainerDef(node.Spec.Exporter))
+		containers = append(containers, generateMetricsExporterContainerDef(node.Spec.Exporter, node.Spec.TLS))
+	}
+
+	if node.Spec.TLS != nil {
+		for i := range containers {
+			// Skip if already has this mount (e.g. exporter might have added it)
+			hasMount := false
+			for _, m := range containers[i].VolumeMounts {
+				if m.Name == tlsVolumeName || m.MountPath == tlsCertMountPath {
+					hasMount = true
+					break
+				}
+			}
+			if !hasMount {
+				containers[i].VolumeMounts = append(containers[i].VolumeMounts, corev1.VolumeMount{
+					Name:      tlsVolumeName,
+					MountPath: tlsCertMountPath,
+					ReadOnly:  true,
+				})
+			}
+			containers[i].Env = append(containers[i].Env,
+				corev1.EnvVar{Name: "VALKEY_TLS_ENABLED", Value: "true"},
+				corev1.EnvVar{Name: "VALKEY_TLS_CA_FILE", Value: tlsCertMountPath + "/ca.crt"},
+				corev1.EnvVar{Name: "VALKEY_TLS_CERT_FILE", Value: tlsCertMountPath + "/tls.crt"},
+				corev1.EnvVar{Name: "VALKEY_TLS_KEY_FILE", Value: tlsCertMountPath + "/tls.key"},
+				corev1.EnvVar{Name: "VALKEY_TLS_ARGS", Value: fmt.Sprintf("--tls --cacert %s --cert %s --key %s",
+					tlsCertMountPath+"/ca.crt", tlsCertMountPath+"/tls.crt", tlsCertMountPath+"/tls.key")},
+			)
+		}
 	}
 
 	return mergePatchContainers(containers, node.Spec.Containers)
@@ -264,6 +296,12 @@ func buildValkeyNodePodTemplateSpec(node *valkeyiov1alpha1.ValkeyNode, labels ma
 					},
 				},
 			},
+			{
+				Name: "data",
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
 		},
 	}
 
@@ -281,6 +319,17 @@ func buildValkeyNodePodTemplateSpec(node *valkeyiov1alpha1.ValkeyNode, labels ma
 			Name:      "users-acl",
 			MountPath: "/config/users",
 			ReadOnly:  true,
+		})
+	}
+
+	if node.Spec.TLS != nil {
+		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+			Name: tlsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: node.Spec.TLS.Certificate.SecretName,
+				},
+			},
 		})
 	}
 

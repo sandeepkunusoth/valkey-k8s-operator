@@ -17,12 +17,18 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	valkeyv1 "valkey.io/valkey-operator/api/v1alpha1"
 	"valkey.io/valkey-operator/internal/valkey"
 )
@@ -65,6 +71,13 @@ const (
 	// Node 0 is the initial primary; nodes 1+ are replicas. Together with
 	// LabelShardIndex this forms a unique selector per Deployment.
 	LabelNodeIndex = "valkey.io/node-index"
+)
+
+const (
+	// tlsVolumeName is the name of the volume that will be mounted in the Valkey container.
+	tlsVolumeName = "tls-certs"
+	// tlsCertMountPath is the path where the TLS certificates are mounted in the Valkey container.
+	tlsCertMountPath = "/tls"
 )
 
 // Role label values.
@@ -226,4 +239,106 @@ func countSlots(ranges []valkey.SlotsRange) int {
 // replicas.
 func valkeyNodeName(clusterName string, shardIndex int, nodeIndex int) string {
 	return fmt.Sprintf("%s-%d-%d", clusterName, shardIndex, nodeIndex)
+}
+
+// generateValkeyConfig generates the Valkey configuration for a ValkeyCluster.
+func generateValkeyConfig(cluster *valkeyv1.ValkeyCluster) string {
+	config := `cluster-enabled yes
+protected-mode no
+cluster-node-timeout 2000
+aclfile /config/users/users.acl`
+
+	if cluster.Spec.TLS != nil {
+		config += fmt.Sprintf(`
+tls-port %d
+port 0
+tls-cluster yes
+tls-replication yes
+tls-cert-file %s
+tls-key-file %s
+tls-ca-cert-file %s`,
+			DefaultPort,
+			tlsCertMountPath+"/tls.crt",
+			tlsCertMountPath+"/tls.key",
+			tlsCertMountPath+"/ca.crt",
+		)
+	}
+	return config
+}
+
+func parsePEMCertificates(pemBytes []byte) []*x509.Certificate {
+	var certs []*x509.Certificate
+
+	for len(pemBytes) > 0 {
+		var block *pem.Block
+		block, pemBytes = pem.Decode(pemBytes)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		certs = append(certs, cert)
+	}
+	return certs
+}
+
+func serverNameFromCert(cert *x509.Certificate) string {
+	if len(cert.DNSNames) > 0 {
+		return cert.DNSNames[0]
+	}
+	return cert.Subject.CommonName
+}
+
+// GetTLSConfig returns the TLS configuration for a ValkeyCluster.
+func GetTLSConfig(ctx context.Context, c client.Client, namespace, secretName, serverName string) (*tls.Config, error) {
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	if err != nil {
+		return nil, err
+	}
+
+	certData, certOk := secret.Data["tls.crt"]
+	keyData, keyOk := secret.Data["tls.key"]
+	caData, caOk := secret.Data["ca.crt"]
+
+	if !certOk || !keyOk || !caOk {
+		return nil, fmt.Errorf("TLS secret is missing required keys: cert=%v, key=%v, ca=%v", certOk, keyOk, caOk)
+	}
+
+	cert, err := tls.X509KeyPair(certData, keyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TLS key pair: %w", err)
+	}
+
+	chain := parsePEMCertificates(certData)
+	if len(chain) == 0 {
+		return nil, fmt.Errorf("failed to parse certificate from secret key %q", "tls.crt")
+	}
+
+	caCertPool := x509.NewCertPool()
+	if caOk && len(caData) > 0 {
+		if !caCertPool.AppendCertsFromPEM(caData) {
+			return nil, fmt.Errorf("failed to parse CA certificates from secret key %q", "ca.crt")
+		}
+	} else {
+		for _, c := range chain {
+			caCertPool.AddCert(c)
+		}
+	}
+
+	if serverName == "" {
+		serverName = serverNameFromCert(chain[0])
+	}
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
+		ServerName:   serverName,
+		MinVersion:   tls.VersionTLS12,
+	}
+	return tlsCfg, nil
 }

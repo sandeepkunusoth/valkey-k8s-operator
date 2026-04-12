@@ -24,16 +24,62 @@ import (
 	valkeyiov1alpha1 "valkey.io/valkey-operator/api/v1alpha1"
 )
 
+// getExporterEnvironmentVariables returns the environment variables for the Redis Exporter container.
+// The Redis address is set to the Redis host and port, and TLS configuration is set if enabled.
+// The function returns list of environment variables.
+func getExporterEnvironmentVariables(tlsEnabled bool) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	redisHost := "redis://localhost"
+	if tlsEnabled {
+		redisHost = "rediss://localhost"
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "REDIS_EXPORTER_TLS_CA_CERT_FILE",
+			Value: tlsCertMountPath + "/ca.crt",
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "REDIS_EXPORTER_TLS_CLIENT_CERT_FILE",
+			Value: tlsCertMountPath + "/tls.crt",
+		})
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  "REDIS_EXPORTER_TLS_CLIENT_KEY_FILE",
+			Value: tlsCertMountPath + "/tls.key",
+		})
+	}
+
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  "REDIS_ADDR",
+		Value: fmt.Sprintf("%s:%d", redisHost, DefaultPort),
+	})
+
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  "REDIS_EXPORTER_WEB_LISTEN_ADDRESS",
+		Value: fmt.Sprintf(":%d", DefaultExporterPort),
+	})
+
+	return envVars
+}
+
 // generateMetricsExporterContainerDef generates the container definition for the metrics exporter sidecar.
-func generateMetricsExporterContainerDef(exporter valkeyiov1alpha1.ExporterSpec) corev1.Container {
+func generateMetricsExporterContainerDef(exporter valkeyiov1alpha1.ExporterSpec, tlsConfig *valkeyiov1alpha1.TLSConfig) corev1.Container {
 	exporterImage := DefaultExporterImage
 	if exporter.Image != "" {
 		exporterImage = exporter.Image
 	}
+	tlsEnabled := tlsConfig != nil && tlsConfig.Certificate.SecretName != ""
+	envVars := getExporterEnvironmentVariables(tlsEnabled)
+	var volumeMounts []corev1.VolumeMount
+	if tlsEnabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      tlsVolumeName,
+			MountPath: tlsCertMountPath,
+			ReadOnly:  true,
+		})
+	}
 	return corev1.Container{
-		Name:  "metrics-exporter",
-		Image: exporterImage,
-		Args:  []string{fmt.Sprintf("--redis.addr=localhost:%d", DefaultPort)},
+		Name:         "metrics-exporter",
+		Image:        exporterImage,
+		Env:          envVars,
+		VolumeMounts: volumeMounts,
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "metrics",
