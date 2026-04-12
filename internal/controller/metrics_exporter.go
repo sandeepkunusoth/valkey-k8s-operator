@@ -34,6 +34,12 @@ func generateMetricsExporterContainerDef(exporter valkeyiov1alpha1.ExporterSpec)
 		Name:  "metrics-exporter",
 		Image: exporterImage,
 		Args:  []string{fmt.Sprintf("--redis.addr=localhost:%d", DefaultPort)},
+		Env: []corev1.EnvVar{
+			{
+				Name:  "REDIS_ADDR",
+				Value: fmt.Sprintf("localhost:%d", DefaultPort),
+			},
+		},
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "metrics",
