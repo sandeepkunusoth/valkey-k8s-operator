@@ -349,10 +349,12 @@ func (r *ValkeyNodeReconciler) getPod(ctx context.Context, node *valkeyiov1alpha
 func (r *ValkeyNodeReconciler) getValkeyRole(ctx context.Context, node *valkeyiov1alpha1.ValkeyNode) string {
 	var tlsConfig *tls.Config
 	if node.Spec.TLS != nil && node.Spec.TLS.Certificate.SecretName != "" {
-		cfg, err := GetTLSConfig(ctx, r.Client, node.Namespace, node.Spec.TLS.Certificate.SecretName,
-			fmt.Sprintf("%s.%s.svc.cluster.local", node.Labels["valkey.io/cluster"], node.Namespace))
-		if err == nil {
-			tlsConfig = cfg
+		cluster := &valkeyiov1alpha1.ValkeyCluster{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: node.Namespace, Name: node.Labels["valkey.io/cluster"]}, cluster); err == nil {
+			cfg, err := GetTLSConfig(ctx, r.Client, cluster)
+			if err == nil {
+				tlsConfig = cfg
+			}
 		}
 	}
 

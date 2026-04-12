@@ -109,7 +109,7 @@ func TestBuildValkeyNodePodTemplateSpec(t *testing.T) {
 	assert.Contains(t, c.ReadinessProbe.Exec.Command, "/scripts/readiness-check.sh")
 
 	// VolumeMounts
-	require.Len(t, c.VolumeMounts, 2)
+	require.Len(t, c.VolumeMounts, 3)
 	assert.Equal(t, "scripts", c.VolumeMounts[0].Name)
 	assert.Equal(t, "/scripts", c.VolumeMounts[0].MountPath)
 	assert.Equal(t, "valkey-conf", c.VolumeMounts[1].Name)
@@ -117,7 +117,7 @@ func TestBuildValkeyNodePodTemplateSpec(t *testing.T) {
 	assert.True(t, c.VolumeMounts[1].ReadOnly, "valkey-conf mount should be read-only")
 
 	// Volumes
-	require.Len(t, pts.Spec.Volumes, 2)
+	require.Len(t, pts.Spec.Volumes, 3)
 	assert.Equal(t, "scripts", pts.Spec.Volumes[0].Name)
 	assert.Equal(t, "valkey-scripts", pts.Spec.Volumes[0].ConfigMap.Name)
 	assert.Equal(t, int32(0755), *pts.Spec.Volumes[0].ConfigMap.DefaultMode)
@@ -422,14 +422,14 @@ func TestParseValkeyRole(t *testing.T) {
 func TestBuildExporterContainer(t *testing.T) {
 	t.Run("default image", func(t *testing.T) {
 		exporter := valkeyv1.ExporterSpec{Enabled: true}
-		c := generateMetricsExporterContainerDef(exporter, nil)
+		c := generateMetricsExporterContainerDef(exporter)
 		assert.Equal(t, DefaultExporterImage, c.Image)
 		assert.Equal(t, "metrics-exporter", c.Name)
 	})
 
 	t.Run("custom image", func(t *testing.T) {
 		exporter := valkeyv1.ExporterSpec{Enabled: true, Image: "custom:1.0"}
-		c := generateMetricsExporterContainerDef(exporter, nil)
+		c := generateMetricsExporterContainerDef(exporter)
 		assert.Equal(t, "custom:1.0", c.Image)
 	})
 
@@ -440,15 +440,20 @@ func TestBuildExporterContainer(t *testing.T) {
 			},
 		}
 		exporter := valkeyv1.ExporterSpec{Enabled: true, Resources: resources}
-		c := generateMetricsExporterContainerDef(exporter, nil)
+		c := generateMetricsExporterContainerDef(exporter)
 		assert.Equal(t, resources, c.Resources)
 	})
 
-	t.Run("args contain redis addr", func(t *testing.T) {
+	t.Run("env contain redis addr", func(t *testing.T) {
 		exporter := valkeyv1.ExporterSpec{Enabled: true}
-		c := generateMetricsExporterContainerDef(exporter, nil)
-		require.Len(t, c.Args, 1)
-		assert.Contains(t, c.Args[0], "--redis.addr=localhost:6379")
+		c := generateMetricsExporterContainerDef(exporter)
+		var redisAddr string
+		for _, env := range c.Env {
+			if env.Name == "REDIS_ADDR" {
+				redisAddr = env.Value
+			}
+		}
+		assert.Contains(t, redisAddr, "localhost:6379")
 	})
 }
 
@@ -482,17 +487,17 @@ func TestBuildValkeyNodePodTemplateSpec_WithACLSecret(t *testing.T) {
 	pts, err := buildValkeyNodePodTemplateSpec(node, valkeyNodeLabels(node))
 	require.NoError(t, err)
 
-	// Volumes: scripts, valkey-conf, users-acl
-	require.Len(t, pts.Spec.Volumes, 3)
-	aclVol := pts.Spec.Volumes[2]
+	// Volumes: scripts, valkey-conf, data, users-acl
+	require.Len(t, pts.Spec.Volumes, 4)
+	aclVol := pts.Spec.Volumes[3]
 	assert.Equal(t, "users-acl", aclVol.Name)
 	require.NotNil(t, aclVol.Secret)
 	assert.Equal(t, "mynode-internal", aclVol.Secret.SecretName)
 
 	// VolumeMounts on the server container (always Containers[0])
 	c := pts.Spec.Containers[0]
-	require.Len(t, c.VolumeMounts, 3)
-	aclMount := c.VolumeMounts[2]
+	require.Len(t, c.VolumeMounts, 4)
+	aclMount := c.VolumeMounts[3]
 	assert.Equal(t, "users-acl", aclMount.Name)
 	assert.Equal(t, "/config/users", aclMount.MountPath)
 	assert.True(t, aclMount.ReadOnly)
@@ -504,8 +509,8 @@ func TestBuildValkeyNodePodTemplateSpec_WithoutACLSecret(t *testing.T) {
 	pts, err := buildValkeyNodePodTemplateSpec(node, valkeyNodeLabels(node))
 	require.NoError(t, err)
 
-	require.Len(t, pts.Spec.Volumes, 2, "should only have scripts and valkey-conf volumes")
-	require.Len(t, pts.Spec.Containers[0].VolumeMounts, 2, "should only have scripts and valkey-conf mounts")
+	require.Len(t, pts.Spec.Volumes, 3, "should only have scripts, valkey-conf and data volumes")
+	require.Len(t, pts.Spec.Containers[0].VolumeMounts, 3, "should only have scripts, valkey-conf and data mounts")
 }
 
 func TestLivenessCheckScript(t *testing.T) {

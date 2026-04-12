@@ -20,7 +20,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"maps"
 	"slices"
@@ -78,6 +77,9 @@ const (
 	tlsVolumeName = "tls-certs"
 	// tlsCertMountPath is the path where the TLS certificates are mounted in the Valkey container.
 	tlsCertMountPath = "/tls"
+	tlsSecretKeyCA   = "ca.crt"
+	tlsSecretKeyCert = "tls.crt"
+	tlsSecretKeyKey  = "tls.key"
 )
 
 // Role label values.
@@ -258,53 +260,28 @@ tls-cert-file %s
 tls-key-file %s
 tls-ca-cert-file %s`,
 			DefaultPort,
-			tlsCertMountPath+"/tls.crt",
-			tlsCertMountPath+"/tls.key",
-			tlsCertMountPath+"/ca.crt",
+			tlsCertMountPath+"/"+tlsSecretKeyCert,
+			tlsCertMountPath+"/"+tlsSecretKeyKey,
+			tlsCertMountPath+"/"+tlsSecretKeyCA,
 		)
 	}
 	return config
 }
 
-func parsePEMCertificates(pemBytes []byte) []*x509.Certificate {
-	var certs []*x509.Certificate
-
-	for len(pemBytes) > 0 {
-		var block *pem.Block
-		block, pemBytes = pem.Decode(pemBytes)
-		if block == nil {
-			break
-		}
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-		cert, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			continue
-		}
-		certs = append(certs, cert)
-	}
-	return certs
-}
-
-func serverNameFromCert(cert *x509.Certificate) string {
-	if len(cert.DNSNames) > 0 {
-		return cert.DNSNames[0]
-	}
-	return cert.Subject.CommonName
-}
-
 // GetTLSConfig returns the TLS configuration for a ValkeyCluster.
-func GetTLSConfig(ctx context.Context, c client.Client, namespace, secretName, serverName string) (*tls.Config, error) {
+func GetTLSConfig(ctx context.Context, c client.Client, cluster *valkeyv1.ValkeyCluster) (*tls.Config, error) {
+	secretName := cluster.Spec.TLS.Certificate.SecretName
+	serverName := fmt.Sprintf("%s.%s.svc.cluster.local", cluster.Name, cluster.Namespace)
+
 	secret := &corev1.Secret{}
-	err := c.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, secret)
+	err := c.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: secretName}, secret)
 	if err != nil {
 		return nil, err
 	}
 
-	certData, certOk := secret.Data["tls.crt"]
-	keyData, keyOk := secret.Data["tls.key"]
-	caData, caOk := secret.Data["ca.crt"]
+	certData, certOk := secret.Data[tlsSecretKeyCert]
+	keyData, keyOk := secret.Data[tlsSecretKeyKey]
+	caData, caOk := secret.Data[tlsSecretKeyCA]
 
 	if !certOk || !keyOk || !caOk {
 		return nil, fmt.Errorf("TLS secret is missing required keys: cert=%v, key=%v, ca=%v", certOk, keyOk, caOk)
@@ -315,25 +292,11 @@ func GetTLSConfig(ctx context.Context, c client.Client, namespace, secretName, s
 		return nil, fmt.Errorf("failed to parse TLS key pair: %w", err)
 	}
 
-	chain := parsePEMCertificates(certData)
-	if len(chain) == 0 {
-		return nil, fmt.Errorf("failed to parse certificate from secret key %q", "tls.crt")
-	}
-
 	caCertPool := x509.NewCertPool()
-	if caOk && len(caData) > 0 {
-		if !caCertPool.AppendCertsFromPEM(caData) {
-			return nil, fmt.Errorf("failed to parse CA certificates from secret key %q", "ca.crt")
-		}
-	} else {
-		for _, c := range chain {
-			caCertPool.AddCert(c)
-		}
+	if !caCertPool.AppendCertsFromPEM(caData) {
+		return nil, fmt.Errorf("failed to parse CA certificates from secret key %q", "ca.crt")
 	}
 
-	if serverName == "" {
-		serverName = serverNameFromCert(chain[0])
-	}
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caCertPool,

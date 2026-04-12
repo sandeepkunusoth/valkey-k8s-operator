@@ -220,7 +220,7 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 
 	// Add exporter sidecar if enabled.
 	if node.Spec.Exporter.Enabled {
-		containers = append(containers, generateMetricsExporterContainerDef(node.Spec.Exporter, node.Spec.TLS))
+		containers = append(containers, generateMetricsExporterContainerDef(node.Spec.Exporter))
 	}
 
 	if node.Spec.TLS != nil {

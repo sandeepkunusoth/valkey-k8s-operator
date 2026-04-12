@@ -546,8 +546,7 @@ func (r *ValkeyClusterReconciler) getValkeyClusterState(ctx context.Context, clu
 	}
 	var tlsConfig *tls.Config
 	if cluster.Spec.TLS != nil && cluster.Spec.TLS.Certificate.SecretName != "" {
-		cfg, err := GetTLSConfig(ctx, r.Client, cluster.Namespace, cluster.Spec.TLS.Certificate.SecretName,
-			fmt.Sprintf("%s.%s.svc.cluster.local", cluster.Name, cluster.Namespace))
+		cfg, err := GetTLSConfig(ctx, r.Client, cluster)
 		if err == nil {
 			tlsConfig = cfg
 		}
