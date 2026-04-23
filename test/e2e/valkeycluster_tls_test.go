@@ -75,13 +75,16 @@ spec:
 		err = os.WriteFile(cmManifestFile, []byte(cmManifest), 0644)
 		Expect(err).NotTo(HaveOccurred())
 
-		utils.Run(exec.Command("kubectl", "apply", "-f", cmManifestFile))
+		Eventually(func() error {
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f", cmManifestFile))
+			return err
+		}).Should(Succeed(), "Cert-manager webhook not ready")
 
 		By("waiting for the certificate secret to be created")
 		Eventually(func() error {
 			_, err := utils.Run(exec.Command("kubectl", "get", "secret", tlsSecretName))
 			return err
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		}).Should(Succeed())
 
 		By("creating the ValkeyCluster CR with TLS and metrics exporter")
 		manifest := fmt.Sprintf(`
