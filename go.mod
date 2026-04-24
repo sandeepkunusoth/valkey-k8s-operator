@@ -1,6 +1,10 @@
 module valkey.io/valkey-operator
 
+<<<<<<< HEAD
 go 1.25.7
+=======
+go 1.25.0
+>>>>>>> e356730 (Update Go build (#150))
 
 require (
 	github.com/onsi/ginkgo/v2 v2.27.2
