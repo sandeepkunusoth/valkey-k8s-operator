@@ -1,3 +1,5 @@
+<<<<<<< HEAD
+=======
 /*
 Copyright 2025 Valkey Contributors.
 
@@ -14,6 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+>>>>>>> tmp-original-03-05-26-02-14
 // Package v1alpha1 contains API Schema definitions for the  v1alpha1 API group.
 // +kubebuilder:object:generate=true
 // +groupName=valkey.io

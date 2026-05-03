@@ -1,3 +1,5 @@
+<<<<<<< HEAD
+=======
 /*
 Copyright 2025 Valkey Contributors.
 
@@ -14,6 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+>>>>>>> tmp-original-03-05-26-02-14
 package main
 
 import (
@@ -189,7 +192,7 @@ func main() {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("valkeycluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "ValkeyCluster")
+		setupLog.Error(err, "Failed to create controller", "controller", "valkeycluster")
 		os.Exit(1)
 	}
 
