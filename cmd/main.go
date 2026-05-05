@@ -189,7 +189,7 @@ func main() {
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorder("valkeycluster-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "valkeycluster")
+		setupLog.Error(err, "Failed to create controller", "controller", "ValkeyCluster")
 		os.Exit(1)
 	}
 
