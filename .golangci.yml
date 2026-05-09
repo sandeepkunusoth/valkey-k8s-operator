@@ -1,7 +1,7 @@
 version: "2"
 run:
   allow-parallel-runners: true
-  go: "1.26"
+  go: "go$(cat .go-version)"
 linters:
   default: none
   enable:
