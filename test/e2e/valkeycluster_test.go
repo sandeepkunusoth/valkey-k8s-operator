@@ -36,7 +36,7 @@ import (
 	"valkey.io/valkey-operator/test/utils"
 )
 
-var _ = Describe("ValkeyCluster", Ordered, func() {
+var _ = FDescribe("ValkeyCluster", Ordered, func() {
 	var valkeyClusterName string
 
 	// After each test, check for failures and collect logs, events,

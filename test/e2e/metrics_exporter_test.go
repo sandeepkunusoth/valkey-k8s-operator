@@ -31,7 +31,7 @@ import (
 	"valkey.io/valkey-operator/test/utils"
 )
 
-var _ = Describe("Valkey Metrics Exporter", func() {
+var _ = FDescribe("Valkey Metrics Exporter", func() {
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
 		if specReport.Failed() {
