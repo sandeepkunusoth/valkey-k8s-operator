@@ -64,6 +64,22 @@ type SlotsRange struct {
 	End   int
 }
 
+func (s SlotsRange) String() string {
+	if s.Start == s.End {
+		return fmt.Sprintf("%d", s.Start)
+	}
+	return fmt.Sprintf("%d-%d", s.Start, s.End)
+}
+
+// FormatSlotsRanges formats a slice of SlotsRange as "0-100,500-600".
+func FormatSlotsRanges(ranges []SlotsRange) string {
+	parts := make([]string, len(ranges))
+	for i, r := range ranges {
+		parts[i] = r.String()
+	}
+	return strings.Join(parts, ",")
+}
+
 // GetClusterState connects to Valkey nodes and scrapes the current state.
 func GetClusterState(ctx context.Context, addresses []string, port int, username, password string, tlsCfg *tls.Config) *ClusterState {
 	state := ClusterState{
@@ -206,6 +222,15 @@ func (n *NodeState) IsPrimary() bool {
 	return slices.Contains(n.Flags, "master")
 }
 
+// CurrentEpoch returns the cluster's current epoch as reported by this node's
+// CLUSTER INFO output.
+func (n *NodeState) CurrentEpoch() int64 {
+	if epoch, err := strconv.ParseInt(n.ClusterInfo["cluster_current_epoch"], 10, 64); err == nil {
+		return epoch
+	}
+	return 0
+}
+
 // IsIsolated returns true if the node's cluster_known_nodes is <= 1,
 // meaning it hasn't been introduced to any other cluster member yet.
 func (n *NodeState) IsIsolated() bool {
@@ -312,36 +337,48 @@ func getNodeState(ctx context.Context, address string, port int, username string
 		Address: address,
 		Port:    port}
 
-	id, err := client.Do(ctx, client.B().ClusterMyid().Build()).ToString()
-	if err != nil {
-		log.Error(err, "command failed: CLUSTER MYID")
-	}
-	node.Id = id
+	results := client.DoMulti(ctx,
+		client.B().ClusterMyid().Build(),
+		client.B().ClusterMyshardid().Build(),
+		client.B().Info().Build(),
+		client.B().ClusterInfo().Build(),
+		client.B().ClusterNodes().Build(),
+	)
 
-	shardid, err := client.Do(ctx, client.B().ClusterMyshardid().Build()).ToString()
-	if err != nil {
-		log.Error(err, "command failed: CLUSTER MYSHARDID")
-	}
-	node.ShardId = shardid
+	if len(results) == 5 {
+		id, err := results[0].ToString()
+		if err != nil {
+			log.Error(err, "command failed: CLUSTER MYID")
+		}
+		node.Id = id
 
-	info, err := client.Do(ctx, client.B().Info().Build()).ToString()
-	if err != nil {
-		log.Error(err, "command failed: INFO")
-	}
-	node.Info = infoStringToMap(info)
+		shardid, err := results[1].ToString()
+		if err != nil {
+			log.Error(err, "command failed: CLUSTER MYSHARDID")
+		}
+		node.ShardId = shardid
 
-	cinfo, err := client.Do(ctx, client.B().ClusterInfo().Build()).ToString()
-	if err != nil {
-		log.Error(err, "command failed: CLUSTER INFO")
-	}
-	node.ClusterInfo = infoStringToMap(cinfo)
+		info, err := results[2].ToString()
+		if err != nil {
+			log.Error(err, "command failed: INFO")
+		}
+		node.Info = infoStringToMap(info)
 
-	cnodes, err := client.Do(ctx, client.B().ClusterNodes().Build()).ToString()
-	if err != nil {
-		log.Error(err, "command failed: CLUSTER NODES")
+		cinfo, err := results[3].ToString()
+		if err != nil {
+			log.Error(err, "command failed: CLUSTER INFO")
+		}
+		node.ClusterInfo = infoStringToMap(cinfo)
+
+		cnodes, err := results[4].ToString()
+		if err != nil {
+			log.Error(err, "command failed: CLUSTER NODES")
+		}
+		// Remove the encoding string included in a verbatim string.
+		node.ClusterNodes = strings.TrimPrefix(cnodes, "txt:")
+	} else {
+		log.Error(fmt.Errorf("expected 5 results from DoMulti, got %d", len(results)), "failed to query node state")
 	}
-	// Remove the encoding string included in a verbatim string.
-	node.ClusterNodes = strings.TrimPrefix(cnodes, "txt:")
 
 	// Extract flags
 	for line := range strings.SplitSeq(node.ClusterNodes, "\n") {

@@ -59,6 +59,7 @@ var (
 			"+cluster|forget",            // remove stale nodes
 			"+cluster|getslotmigrations", // check migration status
 			"+cluster|migrateslots",      // migrate slots between shards
+			"+cluster|set-config-epoch",  // set epoch on new nodes
 			"+info",                      // node info and replication status
 		}, " "),
 		// the ACL rawstring for exporter is taken from the redis_exporter documentation: https://github.com/oliver006/redis_exporter#authenticating-with-redis
@@ -226,11 +227,14 @@ func buildUserAcl(user valkeyiov1alpha1.UserAclSpec, passwords []string) string 
 		acl.WriteString("off")
 	}
 
-	// If enabled, append password(s), which should already be prefix-hashed
-	if user.NoPassword {
-		fmt.Fprintf(&acl, " nopass")
-	} else {
-		appendAcl(&acl, passwords, "#")
+	// If resetpass flag is false, then add password(s)/nopass flag to the ACL
+	if !user.ResetPass {
+		// If enabled, append password(s), which should already be prefix-hashed
+		if user.NoPassword {
+			fmt.Fprintf(&acl, " nopass")
+		} else {
+			appendAcl(&acl, passwords, "#")
+		}
 	}
 
 	// Add key restrictions
@@ -259,8 +263,8 @@ func fetchUserPasswords(ctx context.Context, user valkeyiov1alpha1.UserAclSpec, 
 
 	log := logf.FromContext(ctx)
 
-	// If this user doesn't have a password or is disabled, return empty
-	if user.NoPassword || !user.Enabled {
+	// If this user have resetpass flag, doesn't have a password, or is disabled, return empty
+	if user.NoPassword || !user.Enabled || user.ResetPass {
 		return []string{}, nil
 	}
 	// Look for a Secret matching the user-provided name, or clusterName-users
