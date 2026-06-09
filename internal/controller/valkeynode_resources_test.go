@@ -867,8 +867,8 @@ func TestBuildValkeyNodePodTemplateSpec_OperatorUserProbeEnv(t *testing.T) {
 		envByName[server.Env[i].Name] = server.Env[i]
 	}
 
-	user, ok := envByName["VALKEY_OPERATOR_USER"]
-	require.True(t, ok, "VALKEY_OPERATOR_USER env should be set")
+	user, ok := envByName["VALKEY_USER"]
+	require.True(t, ok, "VALKEY_USER env should be set")
 	assert.Equal(t, "_operator", user.Value)
 
 	e, ok := envByName["VALKEYCLI_AUTH"]
@@ -886,7 +886,7 @@ func TestBuildValkeyNodePodTemplateSpec_NoOperatorUserProbeEnv(t *testing.T) {
 	pts, err := buildValkeyNodePodTemplateSpec(node, valkeyNodeLabels(node))
 	require.NoError(t, err)
 	for _, e := range pts.Spec.Containers[0].Env {
-		assert.NotEqual(t, "VALKEY_OPERATOR_USER", e.Name)
+		assert.NotEqual(t, "VALKEY_USER", e.Name)
 		assert.NotEqual(t, "VALKEYCLI_AUTH", e.Name)
 	}
 }
@@ -905,7 +905,7 @@ func TestProbeScriptOperatorUserArgs(t *testing.T) {
 
 			// With probe user + auth env: --user present, password absent from argv.
 			cmd := exec.Command(scriptPath)
-			cmd.Env = append(os.Environ(), pathEnv, "VALKEY_OPERATOR_USER=_operator", "VALKEYCLI_AUTH=s3cr3t")
+			cmd.Env = append(os.Environ(), pathEnv, "VALKEY_USER=_operator", "VALKEYCLI_AUTH=s3cr3t")
 			require.NoError(t, cmd.Run())
 			got, err := os.ReadFile(argsFile)
 			require.NoError(t, err)
@@ -914,7 +914,7 @@ func TestProbeScriptOperatorUserArgs(t *testing.T) {
 
 			// Without any probe env: no --user.
 			cmd = exec.Command(scriptPath)
-			cmd.Env = append(os.Environ(), pathEnv, "VALKEY_OPERATOR_USER=", "VALKEYCLI_AUTH=")
+			cmd.Env = append(os.Environ(), pathEnv, "VALKEY_USER=", "VALKEYCLI_AUTH=")
 			require.NoError(t, cmd.Run())
 			got, err = os.ReadFile(argsFile)
 			require.NoError(t, err)
