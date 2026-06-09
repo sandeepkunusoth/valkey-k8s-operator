@@ -278,7 +278,7 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 		)
 	}
 
-	// Use operator-managed custom user for probes.
+	// Use operator-managed custom user for probes
 	clusterName := node.Labels[LabelCluster]
 	probeUserSecret := operatorUserPasswordSecret(clusterName)
 	if probeUserSecret != nil && probeUserSecret.Name != "" {
