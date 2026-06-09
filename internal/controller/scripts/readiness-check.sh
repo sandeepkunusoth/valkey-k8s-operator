@@ -42,12 +42,11 @@ if [ -n "${VALKEY_TLS_ARGS:-}" ]; then
     tls_args="$VALKEY_TLS_ARGS"
 fi
 
-# Authenticate as the operator-managed user when configured. valkey-cli has
-# no env var for the username, so it is passed explicitly; the password is read
-# from VALKEYCLI_AUTH.
+# Authenticate as the configured probe user when set
+# the password is read from VALKEYCLI_AUTH.
 auth_args=""
-if [ -n "${VALKEY_OPERATOR_USER:-}" ]; then
-    auth_args="--user $VALKEY_OPERATOR_USER"
+if [ -n "${VALKEY_USER:-}" ]; then
+    auth_args="--user $VALKEY_USER"
 fi
 
 # Perform checks
@@ -59,17 +58,3 @@ if [ "$response" != "PONG" ]; then
     echo "$response" >&2
     exit 1
 fi
-
-# valkey_status_file=/tmp/.valkey_cluster_check
-# if [ ! -f "$valkey_status_file" ]; then
-#     response=$(
-#         timeout $timeout \
-#         valkey-cli -h localhost -p $port CLUSTER INFO | grep cluster_state | tr -d '[:space:]')
-
-#     if [ "$response" != "cluster_state:ok" ]; then
-#         echo "$response" >&2
-#         exit 1
-#     else
-#         touch "$valkey_status_file"
-#     fi
-# fi
