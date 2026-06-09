@@ -48,6 +48,9 @@ auth_args=""
 if [ -n "${VALKEY_USER:-}" ]; then
     auth_args="--user $VALKEY_USER"
 fi
+if [ -n "${VALKEYCLI_AUTH:-}" ]; then
+    auth_args="$auth_args --no-auth-warning"
+fi
 
 # Perform checks
 response=$(

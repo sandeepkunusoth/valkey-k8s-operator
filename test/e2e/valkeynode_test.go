@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	// Credentials the e2e harness provisions to stand in for the operator-managed
+	// Credentials the e2e provisions to stand in for the operator-managed
 	// "_operator" system user. See applySystemUsersSecrets.
 	e2eOperatorPassword = "e2eOperatorPassw0rd"
 	e2eDefaultPassword  = "e2eDefaultPassword"
@@ -70,11 +70,6 @@ var _ = Describe("ValkeyNode", func() {
 	//   - internal-<name>-acl (users.acl): defines "_operator" and a password-
 	//     protected "default" user, so a Ready node proves the probe authenticated
 	//     as "_operator" rather than silently passing via a nopass "default".
-	//
-	// TODO(standalone-system-users): the operator does not provision these for
-	// standalone ValkeyNodes today (only cluster-owned nodes get them from the
-	// ValkeyCluster reconcile). Once that lands, move this out of the test. See
-	// issue.md.
 	applySystemUsersSecrets := func(name string) {
 		applyManifest(fmt.Sprintf(`apiVersion: v1
 kind: Secret
