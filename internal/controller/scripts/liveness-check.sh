@@ -42,14 +42,10 @@ if [ -n "${VALKEY_TLS_ARGS:-}" ]; then
     tls_args="$VALKEY_TLS_ARGS"
 fi
 
-# Authenticate as the configured probe user when set
-# the password is read from VALKEYCLI_AUTH.
+# Authenticate as the probe user when user and password are set.
 auth_args=""
-if [ -n "${VALKEY_USER:-}" ]; then
-    auth_args="--user $VALKEY_USER"
-fi
-if [ -n "${VALKEYCLI_AUTH:-}" ]; then
-    auth_args="$auth_args --no-auth-warning"
+if [ -n "${VALKEY_USER:-}" ] && [ -n "${VALKEYCLI_AUTH:-}" ]; then
+    auth_args="--user $VALKEY_USER --no-auth-warning"
 fi
 
 # Perform check
