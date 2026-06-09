@@ -134,18 +134,18 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	if err := r.upsertConfigMap(ctx, cluster); err != nil {
+	// Use the hash returned by upsertConfigMap directly. Reading it back from the
+	// ConfigMap via the cached client is unsafe: right after the ConfigMap is
+	// created the informer cache may not have observed it, so the read misses and
+	// yields an empty hash. ValkeyNodes created with an empty hash start without
+	// the config-hash pod-template annotation, and the later non-empty hash rolls
+	// the freshly created pods.
+	configHash, err := r.upsertConfigMap(ctx, cluster)
+	if err != nil {
 		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonConfigMapError, err.Error(), metav1.ConditionFalse)
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{}, err
 	}
-	configHash := func() string {
-		cm := &corev1.ConfigMap{}
-		if err := r.Get(ctx, client.ObjectKey{Name: GetServerConfigMapName(cluster.Name), Namespace: cluster.Namespace}, cm); err != nil {
-			return ""
-		}
-		return cm.Annotations[configHashKey]
-	}()
 
 	nodes := &valkeyiov1alpha1.ValkeyNodeList{}
 	if err := r.List(ctx, nodes, client.InNamespace(cluster.Namespace), client.MatchingLabels(map[string]string{LabelCluster: cluster.Name})); err != nil {
@@ -160,11 +160,26 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{}, err
 	} else if requeue {
+		if result, handled, err := r.handlePodSchedulingIssues(ctx, cluster); err != nil {
+			setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonValkeyNodeError, err.Error(), metav1.ConditionFalse)
+			_ = r.updateStatus(ctx, cluster, nil)
+			return ctrl.Result{}, err
+		} else if handled {
+			return result, nil
+		}
 		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonUpdatingNodes, "Updating ValkeyNodes", metav1.ConditionFalse)
 		setCondition(cluster, valkeyiov1alpha1.ConditionProgressing, valkeyiov1alpha1.ReasonUpdatingNodes, "Updating ValkeyNodes", metav1.ConditionTrue)
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 	}
+	if result, handled, err := r.handlePodSchedulingIssues(ctx, cluster); err != nil {
+		setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonValkeyNodeError, err.Error(), metav1.ConditionFalse)
+		_ = r.updateStatus(ctx, cluster, nil)
+		return ctrl.Result{}, err
+	} else if handled {
+		return result, nil
+	}
+
 	operatorPassword, err := fetchSystemUserPassword(ctx, operatorUser, r.Client, cluster.Name, cluster.Namespace)
 	if err != nil {
 		log.Error(err, "failed to retrieve system user password")
@@ -354,6 +369,67 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
+type podSchedulingIssue struct {
+	podName string
+	message string
+}
+
+func (r *ValkeyClusterReconciler) handlePodSchedulingIssues(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) (ctrl.Result, bool, error) {
+	issue, err := r.findPodSchedulingIssue(ctx, cluster)
+	if err != nil {
+		return ctrl.Result{}, false, err
+	}
+	if issue == nil {
+		removeConditionIfReason(&cluster.Status.Conditions, valkeyiov1alpha1.ConditionDegraded, valkeyiov1alpha1.ReasonPodUnschedulable)
+		removeConditionIfReason(&cluster.Status.Conditions, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonPodUnschedulable)
+		return ctrl.Result{}, false, nil
+	}
+
+	message := fmt.Sprintf("Pod %s is unschedulable", issue.podName)
+	if issue.message != "" {
+		message = fmt.Sprintf("%s: %s", message, issue.message)
+	}
+	r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "PodUnschedulable", "SchedulePod", "%s", message)
+	setCondition(cluster, valkeyiov1alpha1.ConditionDegraded, valkeyiov1alpha1.ReasonPodUnschedulable, message, metav1.ConditionTrue)
+	setCondition(cluster, valkeyiov1alpha1.ConditionReady, valkeyiov1alpha1.ReasonPodUnschedulable, message, metav1.ConditionFalse)
+	setCondition(cluster, valkeyiov1alpha1.ConditionProgressing, valkeyiov1alpha1.ReasonReconciling, "Waiting for unschedulable pods to be scheduled", metav1.ConditionTrue)
+	if err := r.updateStatus(ctx, cluster, nil); err != nil {
+		return ctrl.Result{}, false, err
+	}
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, true, nil
+}
+
+func (r *ValkeyClusterReconciler) findPodSchedulingIssue(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) (*podSchedulingIssue, error) {
+	pods := &corev1.PodList{}
+	if err := r.List(ctx, pods, client.InNamespace(cluster.Namespace), client.MatchingLabels(map[string]string{LabelCluster: cluster.Name})); err != nil {
+		return nil, fmt.Errorf("list Valkey pods: %w", err)
+	}
+
+	for i := range pods.Items {
+		if issue := podSchedulingIssueForPod(&pods.Items[i]); issue != nil {
+			return issue, nil
+		}
+	}
+	return nil, nil
+}
+
+func podSchedulingIssueForPod(pod *corev1.Pod) *podSchedulingIssue {
+	if pod.DeletionTimestamp != nil {
+		return nil
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodScheduled &&
+			condition.Status == corev1.ConditionFalse &&
+			condition.Reason == corev1.PodReasonUnschedulable {
+			return &podSchedulingIssue{
+				podName: pod.Name,
+				message: condition.Message,
+			}
+		}
+	}
+	return nil
+}
+
 func headlessServiceName(clusterName string) string {
 	return resourcePrefix + clusterName
 }
@@ -394,8 +470,8 @@ func (r *ValkeyClusterReconciler) upsertService(ctx context.Context, cluster *va
 //	<cluster>-<N>-<M>
 //
 // where N is the shard index and M is the node index (0 = initial primary,
-// 1+ = replicas). It iterates shards in ascending order and nodes in descending order within each
-// shard (replicas before primary). At most one spec update is issued per reconcile.
+// 1+ = replicas). It iterates shards in ascending order and nodes replica-first within each
+// shard, using live cluster state to identify the actual primary. At most one spec update is issued per reconcile.
 // Once a node is updated or found not-ready after a prior update,
 // the function returns (true, nil) so the caller requeues before advancing to the next node.
 //
@@ -413,11 +489,11 @@ func (r *ValkeyClusterReconciler) reconcileValkeyNodes(ctx context.Context, clus
 	// Scrape cluster state once for proactive failover decisions, but only
 	// when at least one node actually needs a roll. During initial bootstrap
 	// no nodes exist, so state stays nil. The snapshot is safe to reuse
-	// across the loop because nodes are iterated replicas-first (the primary
-	// is last in each shard), and after an update we requeue immediately,
-	// re-scraping fresh state.
+	// across the loop: replicaFirstNodeOrder uses it to place the actual
+	// primary last within each shard, and after an update we requeue
+	// immediately, re-scraping fresh state before any further rolls.
 	var clusterState *valkey.ClusterState
-	if anyNodeRequiresRoll(cluster, nodes) {
+	if anyNodeRequiresRoll(cluster, nodes, configHash) {
 		operatorPassword, err := fetchSystemUserPassword(ctx, operatorUser, r.Client, cluster.Name, cluster.Namespace)
 		if err != nil {
 			return false, fmt.Errorf("failed to fetch operator password for proactive failover: %w", err)
@@ -427,8 +503,18 @@ func (r *ValkeyClusterReconciler) reconcileValkeyNodes(ctx context.Context, clus
 	}
 
 	for shardIndex := range int(cluster.Spec.Shards) {
-		// Iterate nodeIndex in reverse order (replicas before primary)
-		for nodeIndex := nodesPerShard - 1; nodeIndex >= 0; nodeIndex-- {
+		// If rolls are in progress but the primary of an active shard cannot be
+		// identified from cluster state, defer rather than roll in an unknown order.
+		// New shards (not yet in the topology) are exempt — they need creation, not rolling.
+		if clusterState != nil && shardExistsInTopology(clusterState, shardIndex, nodes) &&
+			primaryNodeIndexForShard(shardIndex, nodesPerShard, nodes, clusterState) < 0 {
+			log.Info("cannot identify primary for shard, deferring roll", "shardIndex", shardIndex)
+			return true, nil
+		}
+		// Iterate nodes replica-first: use live cluster state to identify the
+		// actual primary (which may differ from node-index=0 after a failover)
+		// and place it last.
+		for _, nodeIndex := range replicaFirstNodeOrder(shardIndex, nodesPerShard, nodes, clusterState) {
 			requeue, nodeCreated, err := r.reconcileValkeyNode(ctx, cluster, shardIndex, nodeIndex, clusterState, configHash)
 			if err != nil {
 				return false, err
@@ -472,12 +558,28 @@ func (r *ValkeyClusterReconciler) reconcileValkeyNode(ctx context.Context, clust
 					"name", node.Name, "err", err)
 			}
 		} else if nodeRequiresRoll(current, desired) {
-			if shard, replicas := findFailoverShard(clusterState, current.Status.PodIP); shard != nil {
+			shard, replicas := findFailoverShard(clusterState, current.Status.PodIP)
+			if shard != nil {
 				log.Info("proactive failover before rolling primary",
-					"name", node.Name, "address", current.Status.PodIP)
+					"name", node.Name, "address", current.Status.PodIP,
+					"syncedReplicas", len(replicas))
 				if err := proactiveFailover(ctx, r.Recorder, cluster, shard, replicas); err != nil {
 					log.Info("proactive failover did not complete, proceeding with roll",
 						"name", node.Name, "err", err)
+				}
+			} else if cluster.Spec.Replicas > 0 {
+				// findFailoverShard returned nil for one of three reasons:
+				// 1. Node is the shard primary but has no synced replicas: skip roll, would lose data
+				// 2. Node is in a shard but is a replica: safe to roll
+				// 3. Node isn't in any shard (isolated): safe to roll
+				// Only case 1 requires skipping; identify it's the actual primary of its shard.
+				shardInState := clusterState.FindShardForAddress(current.Status.PodIP)
+				if shardInState != nil && shardInState.GetPrimaryNode() != nil && shardInState.GetPrimaryNode().Address == current.Status.PodIP {
+					log.Info("primary has no synced replicas, deferring roll",
+						"name", node.Name, "address", current.Status.PodIP,
+						"shardNodes", len(shardInState.Nodes),
+						"shardId", shardInState.Id)
+					return false, false, nil
 				}
 			}
 		}
@@ -547,18 +649,19 @@ func buildClusterValkeyNode(cluster *valkeyiov1alpha1.ValkeyCluster, shardIndex 
 			Labels:    l,
 		},
 		Spec: valkeyiov1alpha1.ValkeyNodeSpec{
-			Image:               cluster.Spec.Image,
-			WorkloadType:        cluster.Spec.WorkloadType,
-			Persistence:         cluster.Spec.Persistence,
-			Resources:           cluster.Spec.Resources,
-			NodeSelector:        cluster.Spec.NodeSelector,
-			Affinity:            cluster.Spec.Affinity,
-			Tolerations:         cluster.Spec.Tolerations,
-			Exporter:            cluster.Spec.Exporter,
-			Containers:          cluster.Spec.Containers,
-			ServerConfigMapName: GetServerConfigMapName(cluster.Name),
-			UsersACLSecretName:  getInternalSecretName(cluster.Name),
-			TLS:                 cluster.Spec.TLS,
+			Image:                     cluster.Spec.Image,
+			WorkloadType:              cluster.Spec.WorkloadType,
+			Persistence:               cluster.Spec.Persistence,
+			Resources:                 cluster.Spec.Resources,
+			NodeSelector:              cluster.Spec.NodeSelector,
+			Affinity:                  cluster.Spec.Affinity,
+			Tolerations:               cluster.Spec.Tolerations,
+			TopologySpreadConstraints: cluster.Spec.TopologySpreadConstraints,
+			Exporter:                  cluster.Spec.Exporter,
+			Containers:                cluster.Spec.Containers,
+			ServerConfigMapName:       GetServerConfigMapName(cluster.Name),
+			UsersACLSecretName:        getInternalSecretName(cluster.Name),
+			TLS:                       cluster.Spec.TLS,
 		},
 	}
 }
@@ -1207,9 +1310,16 @@ func (r *ValkeyClusterReconciler) deleteExcessValkeyNodes(ctx context.Context, c
 	return deleted, nil
 }
 
-// shardIndexFromState determines the pod shard-index for a given Valkey shard
-// by matching any of its nodes' addresses to ValkeyNode labels.
+// shardIndexFromState determines the shard index for a given Valkey Cluster
+// shard by matching its node addresses to ValkeyNode shard-index labels. It checks
+// the primary first, falling back to any node if unavailable.
 func shardIndexFromState(shard *valkey.ShardState, nodes *valkeyiov1alpha1.ValkeyNodeList) int {
+	if primary := shard.GetPrimaryNode(); primary != nil {
+		_, shardIndex := nodeRoleAndShard(primary.Address, nodes)
+		if shardIndex >= 0 {
+			return shardIndex
+		}
+	}
 	for _, node := range shard.Nodes {
 		_, shardIndex := nodeRoleAndShard(node.Address, nodes)
 		if shardIndex >= 0 {
