@@ -99,7 +99,7 @@ stringData:
 
 	// createStandaloneValkeyNode provisions operator-managed credentials, applies a
 	// ValkeyNode that loads them via usersACLSecretName, and returns a cleanup func.
-	// workloadType must be "StatefulSet" or "Deployment".
+	// This is used only for testing standalone ValkeyNode CRs.
 	createStandaloneValkeyNode := func(name, workloadType string) func() {
 		applySystemUsersSecrets(name)
 
@@ -306,9 +306,8 @@ spec:
 		It("uses an externally provided ConfigMap instead of creating one", func() {
 			By("creating the external ConfigMap with required scripts")
 			// Minimal stub scripts that, like the operator's own probes, authenticate
-			// as the operator-managed user when VALKEY_USER is set (the password is
-			// read from VALKEYCLI_AUTH by valkey-cli). valkey.conf loads the ACL so
-			// "default" requires a password and "_operator" exists.
+			// as the custom user when VALKEY_USER is set. valkey.conf loads the ACL so
+			// "default" requires a password and custom user exists.
 			livenessScript := `#!/bin/sh
 auth_args=""
 if [ -n "${VALKEY_USER:-}" ]; then auth_args="--user $VALKEY_USER"; fi
@@ -340,10 +339,6 @@ data:
 			defer deleteResource("configmap", cmName)
 
 			By("creating a ValkeyNode that references the external ConfigMap")
-			// The probe-auth env vars are injected because of the cluster label, so the
-			// pod needs the system-passwords secret to start. usersACLSecretName mounts
-			// the ACL the external ConfigMap's valkey.conf loads, so "_operator" exists
-			// and "default" requires a password here too.
 			applySystemUsersSecrets(nodeName)
 
 			nodeManifest := fmt.Sprintf(`apiVersion: valkey.io/v1alpha1
