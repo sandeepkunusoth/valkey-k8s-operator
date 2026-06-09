@@ -81,9 +81,7 @@ func getSystemPasswordSecretName(clusterName string) string {
 }
 
 // operatorUserPasswordSecret returns a SecretKeySelector for the operator-managed
-// "_operator" system user's password. The operator always provisions this user
-// (with +@connection, so AUTH/PING are allowed) and stores its generated password
-// in the system-passwords Secret.
+// "_operator" system user's password.
 func operatorUserPasswordSecret(clusterName string) *corev1.SecretKeySelector {
 	return &corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: getSystemPasswordSecretName(clusterName)},
