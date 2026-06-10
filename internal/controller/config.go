@@ -42,8 +42,8 @@ const (
 	readinessScriptKey = "readiness-check.sh"
 	livenessScriptKey  = "liveness-check.sh"
 
-	valkeyYes = "yes"
-	valkeyNo  = "no"
+	Yes = "yes"
+	No  = "no"
 
 	// Average-ish length of Valkey parameter + value
 	averageParameterLength = 20
@@ -74,8 +74,8 @@ func buildManagedConfig(includeACL bool, persistence *valkeyiov1alpha1.Persisten
 	if tls != nil {
 		config["tls-port"] = fmt.Sprintf("%d", DefaultPort)
 		config["port"] = "0"
-		config["tls-cluster"] = valkeyYes
-		config["tls-replication"] = valkeyYes
+		config["tls-cluster"] = "yes"
+		config["tls-replication"] = "yes"
 		config["tls-cert-file"] = tlsCertMountPath + "/" + tlsSecretKeyCert
 		config["tls-key-file"] = tlsCertMountPath + "/" + tlsSecretKeyKey
 		config["tls-ca-cert-file"] = tlsCertMountPath + "/" + tlsSecretKeyCA
@@ -99,9 +99,9 @@ func buildManagedConfig(includeACL bool, persistence *valkeyiov1alpha1.Persisten
 func tlsAuthClientsValue(mode valkeyiov1alpha1.TLSAuthClients) string {
 	switch mode {
 	case valkeyiov1alpha1.TLSAuthClientsRequired:
-		return valkeyYes // require clients to present a client certificate
+		return Yes // require clients to present a client certificate
 	case valkeyiov1alpha1.TLSAuthClientsDisabled:
-		return valkeyNo // ignore client certificates entirely
+		return No // ignore client certificates entirely
 	default:
 		return "optional" // allow clients to connect with or without a client certificate
 	}
@@ -128,10 +128,10 @@ func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
 func getBaseConfig(cluster *valkeyiov1alpha1.ValkeyCluster) map[string]string {
 	baseConfig := buildManagedConfig(true, cluster.Spec.Persistence, cluster.Spec.TLS)
 	maps.Copy(baseConfig, map[string]string{
-		"cluster-enabled":                 valkeyYes,
-		"protected-mode":                  valkeyNo,
+		"cluster-enabled":                 "yes",
+		"protected-mode":                  "no",
 		"cluster-node-timeout":            "2000",
-		"cluster-allow-replica-migration": valkeyNo,
+		"cluster-allow-replica-migration": "no",
 		"cluster-replica-validity-factor": "0",
 	})
 
