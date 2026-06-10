@@ -137,20 +137,8 @@ type ValkeyClusterSpec struct {
 
 // TLSAuthClients controls how Valkey treats incoming client TLS certificates.
 // It mirrors the Valkey `tls-auth-clients` directive.
-// +kubebuilder:validation:Enum=Optional;Required;Disabled
+// +kubebuilder:validation:Enum=yes;no;optional
 type TLSAuthClients string
-
-const (
-	// TLSAuthClientsOptional accepts both authenticated and unauthenticated clients.
-	// Maps to `tls-auth-clients optional`.
-	TLSAuthClientsOptional TLSAuthClients = "Optional"
-	// TLSAuthClientsRequired enforces mTLS - clients must present a certificate
-	// signed by the configured CA. Maps to `tls-auth-clients yes`.
-	TLSAuthClientsRequired TLSAuthClients = "Required"
-	// TLSAuthClientsDisabled disables client certificate processing entirely.
-	// Maps to `tls-auth-clients no`.
-	TLSAuthClientsDisabled TLSAuthClients = "Disabled"
-)
 
 // TLSAuthClientsUser controls how Valkey maps an authenticated client
 // certificate to an ACL user. It mirrors the Valkey `tls-auth-clients-user` directive.
@@ -176,10 +164,10 @@ type TLSConfig struct {
 	Certificate CertificateRef `json:"certificate,omitempty"`
 
 	// AuthClients controls whether clients must authenticate with a TLS
-	// certificate. `Required` enforces mTLS, `Optional` (the default) allows
-	// both authenticated and unauthenticated clients, and `Disabled` turns
+	// certificate. `yes` enforces mTLS, `optional` (the default) allows
+	// both authenticated and unauthenticated clients, and `no` turns
 	// client certificate processing off entirely.
-	// +kubebuilder:default=Optional
+	// +kubebuilder:default=optional
 	// +optional
 	AuthClients TLSAuthClients `json:"authClients,omitempty"`
 

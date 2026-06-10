@@ -20,7 +20,7 @@ spec:
   tls:
     certificate:
       secretName: valkey-server-tls
-    authClients: Required
+    authClients: yes
     authClientsUser: CN
   users:
     - name: alice
@@ -29,22 +29,22 @@ spec:
       permissions: "+@all ~app:* &events:*"
 ```
 
-With `authClients: Required` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` - no `AUTH` command required. Pair `nopass: true` with this configuration so authentication relies exclusively on the certificate.
+With `authClients: yes` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` - no `AUTH` command required. Pair `nopass: true` with this configuration so authentication relies exclusively on the certificate.
 
 ## Configuration
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `authClients` | enum | `Optional` | One of `Optional`, `Required`, `Disabled`. Controls whether clients must present a TLS certificate. |
+| `authClients` | enum | `optional` | One of `optional`, `yes`, `no`. Controls whether clients must present a TLS certificate. |
 | `authClientsUser` | enum | `Off` | One of `CN`, `Off`. When `CN`, the certificate's Common Name is mapped to an ACL user. Requires Valkey >= 9.0.0. |
 
 ### `authClients` values
 
 | Spec value | Rendered Valkey directive | Meaning |
 |---|---|---|
-| `Optional` | `tls-auth-clients optional` | Default. Both authenticated and unauthenticated TLS clients are allowed. |
-| `Required` | `tls-auth-clients yes` | Enforces mTLS - clients without a valid client certificate are rejected at handshake. |
-| `Disabled` | `tls-auth-clients no` | The server ignores client certificates entirely. |
+| `optional` | `tls-auth-clients optional` | Default. Both authenticated and unauthenticated TLS clients are allowed. |
+| `yes` | `tls-auth-clients yes` | Enforces mTLS - clients without a valid client certificate are rejected at handshake. |
+| `no` | `tls-auth-clients no` | The server ignores client certificates entirely. |
 
 ### Rendered configuration (delta vs. server-only TLS)
 

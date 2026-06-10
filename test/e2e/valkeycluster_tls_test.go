@@ -387,7 +387,7 @@ spec:
   tls:
     certificate:
       secretName: %s
-    authClients: Required
+    authClients: yes
     authClientsUser: CN
   users:
     - name: alice
@@ -512,7 +512,7 @@ spec:
 		_, err = utils.Run(exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", mtlsNoCertPodName),
 			"--for=jsonpath={.status.phase}=Failed", "--timeout=120s"))
 		Expect(err).NotTo(HaveOccurred(),
-			"client without a certificate should fail under authClients=Required")
+			"client without a certificate should fail under authClients=yes")
 
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsNoCertPodName, "--ignore-not-found=true"))
 	})
