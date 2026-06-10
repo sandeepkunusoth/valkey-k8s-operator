@@ -42,8 +42,8 @@ const (
 	readinessScriptKey = "readiness-check.sh"
 	livenessScriptKey  = "liveness-check.sh"
 
-	Yes = "yes"
-	No  = "no"
+	valkeyYes = "yes"
+	valkeyNo  = "no"
 
 	// Average-ish length of Valkey parameter + value
 	averageParameterLength = 20
@@ -83,9 +83,8 @@ func buildManagedConfig(includeACL bool, persistence *valkeyiov1alpha1.Persisten
 		config["tls-auth-clients"] = tlsAuthClientsValue(tls.AuthClients)
 
 		if tls.AuthClientsUser == valkeyiov1alpha1.TLSAuthClientsUserCN {
-			// Map the client certificate's CN to an ACL user. Only emitted
-			// when explicitly opted-in so the Valkey server keeps its native
-			// default ("off") for unconfigured clusters.
+			// Map the client certificate's CN to an ACL user only when explicitly opted-in
+			// so the Valkey server keeps its native default ("off") for unconfigured clusters
 			config["tls-auth-clients-user"] = "CN"
 		}
 	}
@@ -99,9 +98,9 @@ func buildManagedConfig(includeACL bool, persistence *valkeyiov1alpha1.Persisten
 func tlsAuthClientsValue(mode valkeyiov1alpha1.TLSAuthClients) string {
 	switch mode {
 	case valkeyiov1alpha1.TLSAuthClientsRequired:
-		return Yes // require clients to present a client certificate
+		return valkeyYes // require clients to present a client certificate
 	case valkeyiov1alpha1.TLSAuthClientsDisabled:
-		return No // ignore client certificates entirely
+		return valkeyNo // ignore client certificates entirely
 	default:
 		return "optional" // allow clients to connect with or without a client certificate
 	}
