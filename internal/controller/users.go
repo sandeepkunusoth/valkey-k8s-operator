@@ -22,7 +22,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/big"
-	"sort"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -80,6 +80,20 @@ func getSystemPasswordSecretName(clusterName string) string {
 	return "internal-" + clusterName + "-system-passwords"
 }
 
+// operatorUserPasswordSecret returns a SecretKeySelector for the operator-managed
+// "_operator" system user's password.
+func operatorUserPasswordSecret(clusterName string) *corev1.SecretKeySelector {
+	if clusterName == "" {
+		// this can be empty only when valkeynode is created independently without ValkeyCluster CR
+		return nil
+	}
+	return &corev1.SecretKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: getSystemPasswordSecretName(clusterName)},
+		Key:                  operatorUser,
+		Optional:             func(b bool) *bool { return &b }(true),
+	}
+}
+
 func (r *ValkeyClusterReconciler) createSystemUsersAcl(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) (string, error) {
 	log := logf.FromContext(ctx)
 	log.Info("getting system users secret: " + cluster.Name)
@@ -125,8 +139,8 @@ func (r *ValkeyClusterReconciler) reconcileUsersAcl(ctx context.Context, cluster
 	log := logf.FromContext(ctx)
 
 	// Sort users for consistency in hash calculations
-	sort.Slice(cluster.Spec.Users, func(i, j int) bool {
-		return cluster.Spec.Users[i].Name < cluster.Spec.Users[j].Name
+	slices.SortFunc(cluster.Spec.Users, func(a, b valkeyiov1alpha1.UserAclSpec) int {
+		return strings.Compare(a.Name, b.Name)
 	})
 
 	// Process each user, generating a complete ACL string
@@ -249,7 +263,7 @@ func fetchUserPasswords(ctx context.Context, user valkeyiov1alpha1.UserAclSpec, 
 
 	// Sort the password keys; default to username if no keys present
 	passwordKeys := user.PasswordSecret.Keys
-	sort.Strings(passwordKeys)
+	slices.Sort(passwordKeys)
 	if len(passwordKeys) == 0 {
 		passwordKeys = []string{user.Name}
 	}

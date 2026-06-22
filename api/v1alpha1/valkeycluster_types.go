@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // ClusterState represents the high-level state of the ValkeyCluster.
@@ -37,6 +38,15 @@ const (
 	// ClusterStateFailed indicates the cluster has failed and cannot recover.
 	ClusterStateFailed ClusterState = "Failed"
 )
+
+// ClusterStates lists all possible ValkeyCluster states.
+var ClusterStates = []ClusterState{
+	ClusterStateInitializing,
+	ClusterStateReconciling,
+	ClusterStateReady,
+	ClusterStateDegraded,
+	ClusterStateFailed,
+}
 
 // PDBPolicy controls whether the operator manages a PodDisruptionBudget for the cluster.
 // Values may be added in future versions; clients MUST handle unknown values gracefully.
@@ -275,5 +285,8 @@ type ValkeyClusterList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&ValkeyCluster{}, &ValkeyClusterList{})
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(SchemeGroupVersion, &ValkeyCluster{}, &ValkeyClusterList{})
+		return nil
+	})
 }

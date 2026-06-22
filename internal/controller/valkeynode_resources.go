@@ -202,7 +202,7 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 				ProbeHandler: corev1.ProbeHandler{
 					Exec: &corev1.ExecAction{
 						Command: []string{
-							"/bin/sh",
+							shellPath,
 							"-c",
 							"/scripts/liveness-check.sh",
 						},
@@ -218,7 +218,7 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 				ProbeHandler: corev1.ProbeHandler{
 					Exec: &corev1.ExecAction{
 						Command: []string{
-							"/bin/sh",
+							shellPath,
 							"-c",
 							"/scripts/liveness-check.sh",
 						},
@@ -234,7 +234,7 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 				ProbeHandler: corev1.ProbeHandler{
 					Exec: &corev1.ExecAction{
 						Command: []string{
-							"/bin/sh",
+							shellPath,
 							"-c",
 							"/scripts/readiness-check.sh",
 						},
@@ -275,6 +275,16 @@ func buildContainersDef(node *valkeyiov1alpha1.ValkeyNode) ([]corev1.Container, 
 			corev1.EnvVar{Name: "VALKEY_TLS_KEY_FILE", Value: tlsCertMountPath + "/" + tlsSecretKeyKey},
 			corev1.EnvVar{Name: "VALKEY_TLS_ARGS", Value: fmt.Sprintf("--tls --cacert %s --cert %s --key %s",
 				tlsCertMountPath+"/"+tlsSecretKeyCA, tlsCertMountPath+"/"+tlsSecretKeyCert, tlsCertMountPath+"/"+tlsSecretKeyKey)},
+		)
+	}
+
+	// Use operator-managed custom user for probes
+	clusterName := node.Labels[LabelCluster]
+	probeUserSecret := operatorUserPasswordSecret(clusterName)
+	if probeUserSecret != nil && probeUserSecret.Name != "" {
+		containers[0].Env = append(containers[0].Env,
+			corev1.EnvVar{Name: "VALKEY_USER", Value: operatorUser},
+			corev1.EnvVar{Name: "VALKEYCLI_AUTH", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: probeUserSecret}},
 		)
 	}
 

@@ -41,6 +41,35 @@ type NodeState struct {
 	ClusterNodes string
 }
 
+// ReplicationOffset returns this node's processed replication offset from
+// INFO replication (slave_repl_offset), or -1 when it is unavailable. A higher
+// value means the replica is more caught up with its primary.
+func (n *NodeState) ReplicationOffset() int64 {
+	v, ok := n.Info["slave_repl_offset"]
+	if !ok {
+		return -1
+	}
+	offset, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return offset
+}
+
+// HighestOffsetReplica returns the replica with the greatest replication offset,
+// the one most caught up with its primary. Replicas whose offset is unavailable
+// sort last and ties keep slice order. Returns nil for an empty slice.
+func HighestOffsetReplica(replicas []*NodeState) *NodeState {
+	var best *NodeState
+	var bestOffset int64
+	for _, replica := range replicas {
+		if offset := replica.ReplicationOffset(); best == nil || offset > bestOffset {
+			best, bestOffset = replica, offset
+		}
+	}
+	return best
+}
+
 // ShardState represents the current state of a shard.
 type ShardState struct {
 	Id        string
@@ -266,6 +295,68 @@ func (s *ClusterState) HasReplicaOf(nodeId string) bool {
 		}
 	}
 	return false
+}
+
+// HasFailoverQuorum returns true if a majority of slot-owning primaries are
+// reachable. Valkey requires a majority of primaries to vote in a failover
+// election; if quorum is unreachable, no automatic failover can succeed.
+// Uses cluster_size from CLUSTER INFO (total primaries with slots, including
+// failed ones) as the denominator.
+func (s *ClusterState) HasFailoverQuorum() bool {
+	if len(s.Shards) == 0 {
+		return false
+	}
+	var livePrimaries, clusterSize int
+	for _, shard := range s.Shards {
+		if shard.GetPrimaryNode() != nil && len(shard.Slots) > 0 {
+			livePrimaries++
+		}
+		for _, node := range shard.Nodes {
+			// Take the max across nodes in case gossip hasn't fully propagated.
+			if size, err := strconv.Atoi(node.ClusterInfo["cluster_size"]); err == nil && size > clusterSize {
+				clusterSize = size
+			}
+		}
+	}
+	if clusterSize == 0 {
+		return false
+	}
+	return livePrimaries > (clusterSize / 2)
+}
+
+// IsNodeFailed returns true if any live node reports the given node ID as
+// "fail" or "fail?" in CLUSTER NODES. Includes "fail?" (pfail) because when
+// majority of primaries are down, pfail can never promote to fail.
+func (s *ClusterState) IsNodeFailed(nodeId string) bool {
+	for _, shard := range s.Shards {
+		for _, node := range shard.Nodes {
+			for line := range strings.SplitSeq(node.ClusterNodes, "\n") {
+				fields := strings.Fields(line)
+				if len(fields) < 8 || fields[0] != nodeId {
+					continue
+				}
+				flags := strings.Split(fields[2], ",")
+				if slices.Contains(flags, "fail") || slices.Contains(flags, "fail?") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// BestReplicaOf returns the replica with the highest replication offset
+// that references the given primary ID, or nil if none found.
+func (s *ClusterState) BestReplicaOf(primaryId string) *NodeState {
+	var replicas []*NodeState
+	for _, shard := range s.Shards {
+		for _, node := range shard.Nodes {
+			if node.PrimaryIdFromSelf() == primaryId {
+				replicas = append(replicas, node)
+			}
+		}
+	}
+	return HighestOffsetReplica(replicas)
 }
 
 // PrimaryIdFromSelf returns the primary node ID that this node reports as its
