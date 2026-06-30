@@ -414,7 +414,7 @@ func TestBuildClusterValkeyNodePodSecurityContext(t *testing.T) {
 	node := buildClusterValkeyNode(cluster, 0, 0)
 	assert.Equal(t, psc, node.Spec.PodSecurityContext, "podSecurityContext should propagate cluster -> node")
 
-	// Absent on the cluster -> absent on the node (backward-compatible).
+	// Absent on the cluster -> absent on the node.
 	bare := buildClusterValkeyNode(&valkeyv1.ValkeyCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "c2", Namespace: "default"},
 	}, 0, 0)
