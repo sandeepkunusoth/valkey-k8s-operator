@@ -367,6 +367,7 @@ func buildValkeyNodePodTemplateSpec(node *valkeyiov1alpha1.ValkeyNode, labels ma
 		Affinity:                  node.Spec.Affinity,
 		Tolerations:               node.Spec.Tolerations,
 		TopologySpreadConstraints: buildShardTopologySpreadConstraints(node, labels),
+		SecurityContext:           node.Spec.PodSecurityContext,
 		Volumes: []corev1.Volume{
 			{
 				Name: "scripts",
@@ -422,23 +423,22 @@ func buildValkeyNodePodTemplateSpec(node *valkeyiov1alpha1.ValkeyNode, labels ma
 
 	// Back /data with a PVC when persistence is set; otherwise an emptyDir so
 	// the cluster works on readOnlyRootFilesystem.
+	// The /data volume is always present on the pod so the always-mount on
+	// the server container has a backing volume. PVC when persistence is set,
+	// emptyDir otherwise. See issue #371 / upstream valkey-io#286.
+	dataVolume := corev1.Volume{Name: dataVolumeName}
 	if node.Spec.Persistence != nil {
-		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-			Name: dataVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: valkeyNodePVCName(node),
-				},
+		dataVolume.VolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: valkeyNodePVCName(node),
 			},
-		})
+		}
 	} else {
-		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-			Name: dataVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
-		})
+		dataVolume.VolumeSource = corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		}
 	}
+	podSpec.Volumes = append(podSpec.Volumes, dataVolume)
 
 	return corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{
