@@ -20,6 +20,7 @@ limitations under the License.
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -32,27 +33,48 @@ import (
 	"valkey.io/valkey-operator/test/utils"
 )
 
-var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyCluster", "ReadOnlyRootFS"), func() {
+// Test valkey cluster on PSS restricted namespace
+const pssRestrictedNamespace = "valkey-pss-restricted"
+
+var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Ordered, Label("ValkeyCluster", "ReadOnlyRootFS"), func() {
 	const noPersistClusterName = "cluster-readonly-rootfs-sample"
 	const noPersistManifest = "config/samples/v1alpha1_valkeycluster-readonly-rootfs.yaml"
 	const persistClusterName = "cluster-readonly-rootfs-persistent-sample"
 	const persistManifest = "config/samples/v1alpha1_valkeycluster-readonly-rootfs-persistent.yaml"
 
+	BeforeAll(func() {
+		By("creating the restricted-PSS namespace")
+		cmd := exec.Command("kubectl", "delete", "ns", pssRestrictedNamespace, "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "create", "ns", pssRestrictedNamespace)
+		_, err := utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create restricted-PSS namespace")
+
+		By("labeling the namespace to enforce the restricted security policy")
+		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", pssRestrictedNamespace,
+			"pod-security.kubernetes.io/enforce=restricted")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
+	})
+
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
 		if specReport.Failed() {
-			utils.CollectDebugInfo(namespace)
+			utils.CollectDebugInfo(pssRestrictedNamespace)
 		}
 	})
 
 	AfterAll(func() {
-		cmd := exec.Command("kubectl", "delete", "-f", noPersistManifest, "--ignore-not-found=true", "--wait=false")
+		cmd := exec.Command("kubectl", "delete", "-f", noPersistManifest, "-n", pssRestrictedNamespace, "--ignore-not-found=true", "--wait=false")
 		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "delete", "-f", persistManifest, "--ignore-not-found=true", "--wait=false")
+		cmd = exec.Command("kubectl", "delete", "-f", persistManifest, "-n", pssRestrictedNamespace, "--ignore-not-found=true", "--wait=false")
 		_, _ = utils.Run(cmd)
 		cmd = exec.Command("kubectl", "delete", "pvc",
+			"-n", pssRestrictedNamespace,
 			"-l", fmt.Sprintf("valkey.io/cluster=%s", persistClusterName),
 			"--ignore-not-found=true", "--wait=false")
+		_, _ = utils.Run(cmd)
+		cmd = exec.Command("kubectl", "delete", "ns", pssRestrictedNamespace, "--ignore-not-found=true", "--wait=false")
 		_, _ = utils.Run(cmd)
 	})
 
@@ -66,7 +88,7 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 
 		By("verifying the cluster reaches Ready")
 		verifyClusterReady := func(g Gomega) {
-			cr, err := utils.GetValkeyClusterStatus(noPersistClusterName)
+			cr, err := getClusterStatus(noPersistClusterName)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 			g.Expect(cr.Status.ReadyShards).To(Equal(int32(1)))
@@ -78,7 +100,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 		By("verifying the ConfigMap sets dir and cluster-config-file under /data")
 		verifyConfigMap := func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "configmap", controller.GetServerConfigMapName(noPersistClusterName),
-				"-o", "jsonpath={.data.valkey\\.conf}")
+				"-o", "jsonpath={.data.valkey\\.conf}",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(ContainSubstring("dir /data"))
@@ -91,7 +114,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 			for _, container := range []string{"server", "metrics-exporter"} {
 				cmd := exec.Command("kubectl", "get", "pod",
 					"-l", fmt.Sprintf("valkey.io/cluster=%s", noPersistClusterName),
-					"-o", fmt.Sprintf("jsonpath={.items[0].spec.containers[?(@.name=='%s')].securityContext.readOnlyRootFilesystem}", container))
+					"-o", fmt.Sprintf("jsonpath={.items[0].spec.containers[?(@.name=='%s')].securityContext.readOnlyRootFilesystem}", container),
+					"-n", pssRestrictedNamespace)
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("true"),
@@ -104,7 +128,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 		verifyEmptyDir := func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "pod",
 				"-l", fmt.Sprintf("valkey.io/cluster=%s", noPersistClusterName),
-				"-o", "jsonpath={.items[0].spec.volumes[?(@.name=='data')].emptyDir}")
+				"-o", "jsonpath={.items[0].spec.volumes[?(@.name=='data')].emptyDir}",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).NotTo(BeEmpty())
@@ -119,12 +144,14 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 			podName = strings.TrimSpace(podName)
 
 			cmd := exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"sh", "-c", "test -f /data/nodes.conf")
+				"sh", "-c", "test -f /data/nodes.conf",
+				"-n", pssRestrictedNamespace)
 			_, err = utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred(), "/data/nodes.conf should exist")
 
 			cmd = exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"valkey-cli", "CLUSTER", "INFO")
+				"valkey-cli", "CLUSTER", "INFO",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(ContainSubstring("cluster_state:ok"))
@@ -134,15 +161,15 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 
 	It("starts with readOnlyRootFilesystem, persistence, and podSecurityContext", func() {
 		By("creating the persistent readOnlyRootFilesystem cluster")
-		cmd := exec.Command("kubectl", "delete", "-f", persistManifest, "--ignore-not-found=true")
+		cmd := exec.Command("kubectl", "delete", "-f", persistManifest, "--ignore-not-found=true", "-n", pssRestrictedNamespace)
 		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "create", "-f", persistManifest)
+		cmd = exec.Command("kubectl", "create", "-f", persistManifest, "-n", pssRestrictedNamespace)
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create persistent ValkeyCluster CR")
 
 		By("verifying the cluster reaches Ready")
 		verifyClusterReady := func(g Gomega) {
-			cr, err := utils.GetValkeyClusterStatus(persistClusterName)
+			cr, err := getClusterStatus(persistClusterName)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 			g.Expect(cr.Status.ReadyShards).To(Equal(int32(1)))
@@ -153,7 +180,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 		verifyFsGroup := func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "pod",
 				"-l", fmt.Sprintf("valkey.io/cluster=%s", persistClusterName),
-				"-o", "jsonpath={.items[0].spec.securityContext.fsGroup}")
+				"-o", "jsonpath={.items[0].spec.securityContext.fsGroup}",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(strings.TrimSpace(output)).To(Equal("56849"))
@@ -164,7 +192,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 		verifyPVC := func(g Gomega) {
 			cmd := exec.Command("kubectl", "get", "pod",
 				"-l", fmt.Sprintf("valkey.io/cluster=%s", persistClusterName),
-				"-o", "jsonpath={.items[0].spec.volumes[?(@.name=='data')].persistentVolumeClaim.claimName}")
+				"-o", "jsonpath={.items[0].spec.volumes[?(@.name=='data')].persistentVolumeClaim.claimName}",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).NotTo(BeEmpty())
@@ -176,7 +205,8 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 			for _, container := range []string{"server", "metrics-exporter"} {
 				cmd := exec.Command("kubectl", "get", "pod",
 					"-l", fmt.Sprintf("valkey.io/cluster=%s", persistClusterName),
-					"-o", fmt.Sprintf("jsonpath={.items[0].spec.containers[?(@.name=='%s')].securityContext.readOnlyRootFilesystem}", container))
+					"-o", fmt.Sprintf("jsonpath={.items[0].spec.containers[?(@.name=='%s')].securityContext.readOnlyRootFilesystem}", container),
+					"-n", pssRestrictedNamespace)
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(strings.TrimSpace(output)).To(Equal("true"),
@@ -192,12 +222,14 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 			podName = strings.TrimSpace(podName)
 
 			cmd := exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"sh", "-c", "test -f /data/nodes.conf")
+				"sh", "-c", "test -f /data/nodes.conf",
+				"-n", pssRestrictedNamespace)
 			_, err = utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred(), "/data/nodes.conf should exist")
 
 			cmd = exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"valkey-cli", "CLUSTER", "INFO")
+				"valkey-cli", "CLUSTER", "INFO",
+				"-n", pssRestrictedNamespace)
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(ContainSubstring("cluster_state:ok"))
@@ -209,6 +241,21 @@ var _ = Describe("ValkeyCluster readOnlyRootFilesystem", Ordered, Label("ValkeyC
 func getPodName(clusterName string) (string, error) {
 	cmd := exec.Command("kubectl", "get", "pod",
 		"-l", fmt.Sprintf("valkey.io/cluster=%s", clusterName),
-		"-o", "jsonpath={.items[0].metadata.name}")
+		"-o", "jsonpath={.items[0].metadata.name}",
+		"-n", pssRestrictedNamespace)
 	return utils.Run(cmd)
+}
+
+func getClusterStatus(name string) (*valkeyiov1alpha1.ValkeyCluster, error) {
+	cmd := exec.Command("kubectl", "get", "valkeycluster", name, "-n", pssRestrictedNamespace, "-o", "json")
+	output, err := utils.Run(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	var cr valkeyiov1alpha1.ValkeyCluster
+	if err := json.Unmarshal([]byte(output), &cr); err != nil {
+		return nil, err
+	}
+	return &cr, nil
 }
