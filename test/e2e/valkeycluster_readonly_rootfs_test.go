@@ -36,7 +36,7 @@ import (
 // Test valkey cluster on PSS restricted namespace
 const pssRestrictedNamespace = "valkey-pss-restricted"
 
-var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Ordered, Label("ValkeyCluster", "ReadOnlyRootFS"), func() {
+var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Ordered, Label("ValkeyCluster", "ReadOnlyRootFilesystem"), func() {
 	const noPersistClusterName = "cluster-readonly-rootfs-sample"
 	const noPersistManifest = "config/samples/v1alpha1_valkeycluster-readonly-rootfs.yaml"
 	const persistClusterName = "cluster-readonly-rootfs-persistent-sample"
@@ -223,15 +223,17 @@ var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Order
 			g.Expect(err).NotTo(HaveOccurred())
 			podName = strings.TrimSpace(podName)
 
-			cmd := exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"sh", "-c", "test -f /data/nodes.conf",
-				"-n", pssRestrictedNamespace)
+			cmd := exec.Command("kubectl", "exec", podName,
+				"-n", pssRestrictedNamespace,
+				"-c", "server", "--",
+				"sh", "-c", "test -f /data/nodes.conf")
 			_, err = utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred(), "/data/nodes.conf should exist")
 
-			cmd = exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"valkey-cli", "CLUSTER", "INFO",
-				"-n", pssRestrictedNamespace)
+			cmd = exec.Command("kubectl", "exec", podName,
+				"-n", pssRestrictedNamespace,
+				"-c", "server", "--",
+				"valkey-cli", "CLUSTER", "INFO")
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(ContainSubstring("cluster_state:ok"))
