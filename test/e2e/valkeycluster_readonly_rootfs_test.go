@@ -80,9 +80,9 @@ var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Order
 
 	It("starts with readOnlyRootFilesystem and no persistence", func() {
 		By("creating the no-persistence readOnlyRootFilesystem cluster")
-		cmd := exec.Command("kubectl", "delete", "-f", noPersistManifest, "--ignore-not-found=true")
+		cmd := exec.Command("kubectl", "delete", "-f", noPersistManifest, "-n", pssRestrictedNamespace, "--ignore-not-found=true", "--wait=false")
 		_, _ = utils.Run(cmd)
-		cmd = exec.Command("kubectl", "create", "-f", noPersistManifest)
+		cmd = exec.Command("kubectl", "create", "-f", noPersistManifest, "-n", pssRestrictedNamespace)
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create ValkeyCluster CR")
 
@@ -143,15 +143,17 @@ var _ = FDescribe("ValkeyCluster on PSS namespace readOnlyRootFilesystem", Order
 			g.Expect(err).NotTo(HaveOccurred())
 			podName = strings.TrimSpace(podName)
 
-			cmd := exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"sh", "-c", "test -f /data/nodes.conf",
-				"-n", pssRestrictedNamespace)
+			cmd := exec.Command("kubectl", "exec", podName,
+				"-n", pssRestrictedNamespace,
+				"-c", "server", "--",
+				"sh", "-c", "test -f /data/nodes.conf")
 			_, err = utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred(), "/data/nodes.conf should exist")
 
-			cmd = exec.Command("kubectl", "exec", podName, "-c", "server", "--",
-				"valkey-cli", "CLUSTER", "INFO",
-				"-n", pssRestrictedNamespace)
+			cmd = exec.Command("kubectl", "exec", podName,
+				"-n", pssRestrictedNamespace,
+				"-c", "server", "--",
+				"valkey-cli", "CLUSTER", "INFO")
 			output, err := utils.Run(cmd)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(output).To(ContainSubstring("cluster_state:ok"))
