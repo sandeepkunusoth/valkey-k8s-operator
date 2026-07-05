@@ -408,7 +408,7 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 		}
-		Eventually(verifyReady, 10*time.Minute, 5*time.Second).Should(Succeed())
+		Eventually(verifyReady).Should(Succeed())
 	})
 
 	AfterAll(func() {
@@ -442,7 +442,7 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(out).To(ContainSubstring("tls-auth-clients yes"))
 			g.Expect(out).To(ContainSubstring("tls-auth-clients-user CN"))
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		}).Should(Succeed())
 	})
 
 	It("authenticates a client with CN=alice as the matching ACL user", func() {
