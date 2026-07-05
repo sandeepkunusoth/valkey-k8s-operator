@@ -31,7 +31,7 @@ spec:
 
 With `authClients: yes` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` - no `AUTH` command required. Pair `nopass: true` with this configuration so authentication relies exclusively on the certificate.
 
-When `authClients` is left at its default `yes`, Valkey requires any valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA.
+When `authClients` is left at its default `yes`, Valkey clients requires any valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter uses server certs to validate clients when `authClients: yes` is set.
 
 ## Configuration
 
@@ -118,3 +118,4 @@ valkey-cli \
   -p 6379 \
   PING
 ```
+
