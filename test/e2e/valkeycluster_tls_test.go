@@ -404,7 +404,7 @@ spec:
 
 		By("waiting for the cluster to be ready")
 		verifyReady := func(g Gomega) {
-			cr, err := utils.GetValkeyClusterStatus(valkeyClusterName)
+			cr, err := utils.GetValkeyClusterStatus(clusterName)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 		}
