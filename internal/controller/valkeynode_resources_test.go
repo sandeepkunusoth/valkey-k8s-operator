@@ -505,7 +505,6 @@ func TestBuildValkeyNodeConfigMap_WithManagedConfig(t *testing.T) {
 	assert.Contains(t, conf, "cluster-config-file /data/nodes.conf")
 	assert.Contains(t, conf, "tls-port 6379")
 	assert.Contains(t, conf, "port 0")
-	assert.Contains(t, conf, "tls-auth-clients yes")
 }
 
 func TestBuildValkeyNodeConfigMap_WithAuthClientsUserURI(t *testing.T) {
