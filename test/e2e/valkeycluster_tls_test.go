@@ -387,7 +387,7 @@ spec:
   tls:
     certificate:
       secretName: %s
-    authClients: Required
+    authClients: "yes"
     authClientsUser: CN
   users:
     - name: alice
@@ -403,7 +403,7 @@ spec:
 		Expect(err).NotTo(HaveOccurred())
 
 		// We intentionally wait for pod-level Ready rather than the full
-		// cluster `state: Ready`: under `authClients: Required` the operator
+		// cluster `state: Ready`: under `authClients: yes` the operator
 		// itself currently lacks a client cert, so the operator can't drive
 		// CLUSTER MEET against its own cluster. Pod readiness is sufficient
 		// to prove that Valkey accepted the rendered TLS directives.
@@ -512,7 +512,7 @@ spec:
 		_, err = utils.Run(exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", mtlsNoCertPodName),
 			"--for=jsonpath={.status.phase}=Failed", "--timeout=120s"))
 		Expect(err).NotTo(HaveOccurred(),
-			"client without a certificate should fail under authClients=Required")
+			"client without a certificate should fail under authClients=yes")
 
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsNoCertPodName, "--ignore-not-found=true"))
 	})
