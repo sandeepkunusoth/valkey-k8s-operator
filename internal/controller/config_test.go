@@ -46,6 +46,27 @@ var _ = Describe("When creating a cluster", Label("userconfig"), func() {
 
 		// Base, non-overridable parameter
 		Expect(testConfigString).To(ContainSubstring("cluster-enabled"))
+
+		// Primary fails over to a replica on SIGTERM (graceful shutdown)
+		Expect(testConfigString).To(ContainSubstring("shutdown-on-sigterm failover"))
+	})
+
+	// dir and cluster-config-file must always be present, even
+	// without spec.persistence, so nodes.conf can be written under
+	// readOnlyRootFilesystem: true.
+	It("should always emit dir and cluster-config-file directives", func() {
+		By("verifying the rendered config without persistence")
+		clusterNoPersist := getSampleCluster()
+		cfgNoPersist := buildServerConfig(clusterNoPersist)
+		Expect(cfgNoPersist).To(ContainSubstring("dir " + dataMountPath))
+		Expect(cfgNoPersist).To(ContainSubstring("cluster-config-file " + dataMountPath + "/nodes.conf"))
+
+		By("verifying the rendered config with persistence")
+		clusterWithPersist := getSampleCluster()
+		clusterWithPersist.Spec.Persistence = &valkeyiov1alpha1.PersistenceSpec{}
+		cfgWithPersist := buildServerConfig(clusterWithPersist)
+		Expect(cfgWithPersist).To(ContainSubstring("dir " + dataMountPath))
+		Expect(cfgWithPersist).To(ContainSubstring("cluster-config-file " + dataMountPath + "/nodes.conf"))
 	})
 })
 

@@ -76,8 +76,9 @@ type ValkeyClusterSpec struct {
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 
 	// The number of shards groups. Each shard group contains one primary and N replicas.
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Minimum=1
-	Shards int32 `json:"shards,omitempty"`
+	Shards int32 `json:"shards"`
 
 	// The number of replicas for each shard group.
 	// +kubebuilder:validation:Minimum=0
@@ -143,6 +144,11 @@ type ValkeyClusterSpec struct {
 	// +kubebuilder:default=Managed
 	// +optional
 	PodDisruptionBudget PDBPolicy `json:"podDisruptionBudget,omitempty"`
+
+	// Override the PodSecurityContext applied to each ValkeyNode pod of the cluster.
+	// When set, this overrides the default PodSecurityContext.
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
 }
 
 // TLSConfig defines the TLS configuration for ValkeyCluster.
@@ -173,6 +179,10 @@ type ExporterSpec struct {
 
 	// Enable or disable the exporter sidecar container
 	Enabled bool `json:"enabled,omitempty"`
+
+	// Override the SecurityContext applied to the exporter sidecar container.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // ValkeyClusterStatus defines the observed state of ValkeyCluster.

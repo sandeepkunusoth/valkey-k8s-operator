@@ -58,17 +58,18 @@ func GetServerConfigMapName(clusterName string) string {
 // cluster and standalone ValkeyNode config paths.
 //
 //nolint:goconst
-func buildManagedConfig(includeACL bool, persistence *valkeyiov1alpha1.PersistenceSpec, tls *valkeyiov1alpha1.TLSConfig) map[string]string {
+func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.TLSConfig) map[string]string {
 	config := map[string]string{}
 
 	if includeACL {
 		config["aclfile"] = "/config/users/users.acl"
 	}
 
-	if persistence != nil {
-		config["dir"] = dataMountPath
-		config["cluster-config-file"] = dataMountPath + "/nodes.conf"
-	}
+	// Always direct the working dir + cluster-node state file at /data so the
+	// server can run with readOnlyRootFilesystem. The /data
+	// volume is a PVC when spec.persistence is set, an emptyDir otherwise.
+	config["dir"] = dataMountPath
+	config["cluster-config-file"] = dataMountPath + "/nodes.conf"
 
 	if tls != nil {
 		config["tls-port"] = fmt.Sprintf("%d", DefaultPort)
@@ -98,20 +99,25 @@ func renderConfig(config map[string]string) string {
 }
 
 func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
-	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.Persistence, node.Spec.TLS))
+	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS))
 }
 
 // Return a base config of parameters that users shouldn't be able to override
 //
 //nolint:goconst
 func getBaseConfig(cluster *valkeyiov1alpha1.ValkeyCluster) map[string]string {
-	baseConfig := buildManagedConfig(true, cluster.Spec.Persistence, cluster.Spec.TLS)
+	baseConfig := buildManagedConfig(true, cluster.Spec.TLS)
 	maps.Copy(baseConfig, map[string]string{
 		"cluster-enabled":                 "yes",
 		"protected-mode":                  "no",
 		"cluster-node-timeout":            "2000",
 		"cluster-allow-replica-migration": "no",
 		"cluster-replica-validity-factor": "0",
+		// On SIGTERM (graceful pod shutdown from a node drain, eviction, or
+		// preemption), a cluster primary hands its slots off to a replica as
+		// part of shutdown. This covers out-of-band descheduling that the
+		// operator's own rolling failover never observes. Requires Valkey 9.0+.
+		"shutdown-on-sigterm": "failover",
 	})
 
 	return baseConfig
