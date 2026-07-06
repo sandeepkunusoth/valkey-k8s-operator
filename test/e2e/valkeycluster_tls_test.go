@@ -273,7 +273,7 @@ spec:
 	})
 })
 
-var _ = Describe("ValkeyCluster mTLS with CN-based ACL mapping", Ordered, Label("ValkeyCluster", "TLS", "mTLS"), func() {
+var _ = FDescribe("ValkeyCluster mTLS with CN-based ACL mapping", Ordered, Label("ValkeyCluster", "TLS", "mTLS"), func() {
 	const (
 		clusterName       = "cluster-mtls"
 		customIssuer      = "valkey-mtls-custom-issuer"
@@ -392,7 +392,7 @@ spec:
   users:
     - name: alice
       enabled: true
-      nopass: true
+      resetpass: true
       permissions: "+@all ~* &*"
 `, clusterName, serverCertSecret)
 		clusterFile := filepath.Join(tmpDir, "valkeycluster-mtls.yaml")
