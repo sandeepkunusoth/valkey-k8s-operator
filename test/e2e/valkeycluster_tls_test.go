@@ -501,9 +501,9 @@ spec:
 		key := fmt.Sprintf("repl-mtls-%d", time.Now().UnixNano())
 		_, err := utils.Run(exec.Command("kubectl", "exec", primaryPod, "-c", "server", "--",
 			"valkey-cli", "--tls",
-			"--cert", tlsCertMountPath+tlsSecretKeyCert,
-			"--key", tlsCertMountPath+tlsSecretKeyKey,
-			"--cacert", tlsCertMountPath+tlsSecretKeyCA,
+			"--cert", "/tls/tls.crt",
+			"--key", "/tls/tls.key",
+			"--cacert", "/tls/ca.crt",
 			"SET", key, "hello"))
 		Expect(err).NotTo(HaveOccurred())
 
@@ -513,9 +513,9 @@ spec:
 		Eventually(func(g Gomega) {
 			out, err := utils.Run(exec.Command("kubectl", "exec", primaryPod, "-c", "server", "--",
 				"valkey-cli", "--tls",
-				"--cert", tlsCertMountPath+tlsSecretKeyCert,
-				"--key", tlsCertMountPath+tlsSecretKeyKey,
-				"--cacert", tlsCertMountPath+tlsSecretKeyCA,
+				"--cert", "/tls/tls.crt",
+				"--key", "/tls/tls.key",
+				"--cacert", "/tls/ca.crt",
 				"WAIT", "1", "5000"))
 			g.Expect(err).NotTo(HaveOccurred())
 			firstLine := strings.SplitN(strings.TrimSpace(out), "\n", 2)[0]
@@ -525,9 +525,9 @@ spec:
 		// Cleanup.
 		_, _ = utils.Run(exec.Command("kubectl", "exec", primaryPod, "-c", "server", "--",
 			"valkey-cli", "--tls",
-			"--cert", tlsCertMountPath+tlsSecretKeyCert,
-			"--key", tlsCertMountPath+tlsSecretKeyKey,
-			"--cacert", tlsCertMountPath+tlsSecretKeyCA,
+			"--cert", "/tls/tls.crt",
+			"--key", "/tls/tls.key",
+			"--cacert", "/tls/ca.crt",
 			"DEL", key))
 	})
 
@@ -542,8 +542,8 @@ spec:
 					"containers": [{
 						"name": "client",
 						"image": "%s",
-						"command": ["valkey-cli", "-h", "%s", "--tls", "--cacert", tlsCertMountPath+tlsSecretKeyCA, "PING"],
-						"volumeMounts": [{"name": "tls-vol", "mountPath": tlsCertMountPath, "readOnly": true}]
+						"command": ["valkey-cli", "-h", "%s", "--tls", "--cacert", "/tls/ca.crt", "PING"],
+						"volumeMounts": [{"name": "tls-vol", "mountPath": "/tls", "readOnly": true}]
 					}],
 					"volumes": [{"name": "tls-vol", "secret": {"secretName": "%s"}}]
 				}
