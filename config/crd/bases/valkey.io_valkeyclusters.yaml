@@ -3064,6 +3064,12 @@ spec:
                         type: string
                     type: object
                 type: object
+              priorityClassName:
+                description: |-
+                  PriorityClassName is the name of an existing PriorityClass applied to
+                  every pod in the cluster, protecting them from eviction under resource
+                  pressure.
+                type: string
               replicas:
                 description: The number of replicas for each shard group.
                 format: int32
@@ -3133,6 +3139,17 @@ spec:
                 description: The number of shards groups. Each shard group contains
                   one primary and N replicas.
                 format: int32
+                minimum: 1
+                type: integer
+              terminationGracePeriodSeconds:
+                description: |-
+                  TerminationGracePeriodSeconds is the pod termination grace period for the
+                  Valkey nodes. It must give the graceful CLUSTER FAILOVER triggered on
+                  SIGTERM (shutdown-on-sigterm) enough time to hand the shard off to a
+                  replica before SIGKILL. When unset, the operator derives a safe default
+                  from cluster-manual-failover-timeout. A value below that derived minimum
+                  is honoured but reported as a warning.
+                format: int64
                 minimum: 1
                 type: integer
               tls:

@@ -100,6 +100,12 @@ type ValkeyClusterSpec struct {
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 
+	// PriorityClassName is the name of an existing PriorityClass applied to
+	// every pod in the cluster, protecting them from eviction under resource
+	// pressure.
+	// +optional
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+
 	// TopologySpreadConstraints defines pod topology spread constraints applied
 	// to the ValkeyNode workloads. The operator augments these constraints with
 	// shard-aware selectors so pods from the same shard can be spread across the
@@ -134,6 +140,16 @@ type ValkeyClusterSpec struct {
 	// Additional Valkey configuration parameters
 	// +optional
 	Config map[string]string `json:"config,omitempty"`
+
+	// TerminationGracePeriodSeconds is the pod termination grace period for the
+	// Valkey nodes. It must give the graceful CLUSTER FAILOVER triggered on
+	// SIGTERM (shutdown-on-sigterm) enough time to hand the shard off to a
+	// replica before SIGKILL. When unset, the operator derives a safe default
+	// from cluster-manual-failover-timeout. A value below that derived minimum
+	// is honoured but reported as a warning.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 
 	// TLS configuration for the cluster
 	// +optional
@@ -230,6 +246,10 @@ const (
 	ConditionDegraded      = "Degraded"
 	ConditionClusterFormed = "ClusterFormed"
 	ConditionSlotsAssigned = "SlotsAssigned"
+	// ConditionConfigurationWarning flags a spec value the operator accepted but
+	// considers risky, for example a terminationGracePeriodSeconds too short for
+	// graceful failover.
+	ConditionConfigurationWarning = "ConfigurationWarning"
 )
 
 const (
@@ -249,6 +269,7 @@ const (
 	ReasonTopologyComplete         = "TopologyComplete"
 	ReasonAllSlotsAssigned         = "AllSlotsAssigned"
 	ReasonSlotsUnassigned          = "SlotsUnassigned"
+	ReasonGracePeriodTooShort      = "GracePeriodTooShort"
 	ReasonPrimaryLost              = "PrimaryLost"
 	ReasonNoSlots                  = "NoSlotsAvailable"
 	ReasonRebalancingSlots         = "RebalancingSlots"
