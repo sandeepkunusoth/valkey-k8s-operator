@@ -783,7 +783,9 @@ var _ = Describe("EventRecorder", func() {
 					Namespace: "default",
 				},
 				Spec: valkeyiov1alpha1.ValkeyClusterSpec{
-					Image: "valkey/valkey:9.0.0",
+					Shards:   3,
+					Replicas: 1,
+					Image:    "valkey/valkey:9.0.0",
 					Config: map[string]string{
 						"tls-auto-reload-interval": "3600",
 					},
