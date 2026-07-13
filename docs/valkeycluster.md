@@ -238,15 +238,22 @@ tls:
 | `tls.crt` | Server certificate (or chain) |
 | `tls.key` | Private key for the certificate |
 
-When TLS is enabled, the
-operator defaults `tls-auto-reload-interval` to `86400` (1 day) so rotated
-certificates (for example from cert-manager) are reloaded without a restart.
-Override or disable the default via `spec.config`:
+#### Certificate auto-reload (Valkey 9.1+)
+
+When TLS is enabled and the Valkey version detected from `spec.image` is `>= 9.1.0`, the operator defaults [`tls-auto-reload-interval`](https://valkey.io/topics/tls/) to `86400` (seconds, i.e. once per day). Valkey periodically reloads the certificate, key, and CA files from disk, so rotations (cert-manager, projected Secrets) no longer require a pod restart.
 
 ```yaml
-config:
-  tls-auto-reload-interval: "3600"
+spec:
+  config:
+    tls-auto-reload-interval: "3600"
 ```
+
+### Version handling:
+
+- The version is parsed from the `spec.image` tag (e.g. `valkey/valkey:9.1.0`, including distro suffixes such as `-alpine`). It is surfaced on `status.valkeyVersion`.
+- if unsupported directives are set in `spec.config` by user, Valkey refuses to boot on an unknown directive, so operator suppresses it prevents a crash on boot. A `Warning` event (`UnsupportedConfigIgnored`) is recorded when a user value is ignored.
+
+> **Limitation.** Version detection currently relies on the `spec.image` tag, so floating tags like `latest` conservatively skip 9.1+ directives even if the running binary supports them.
 
 ### Users
 
@@ -314,3 +321,4 @@ graph TD
 `ValkeyNode` is an internal CRD — do not create or modify ValkeyNodes directly. All configuration goes through `ValkeyCluster`. See [ValkeyNode design](./valkeynode-design.md) for why this abstraction exists.
 
 For status conditions and events, see [status-conditions.md](./status-conditions.md).
+

@@ -259,6 +259,7 @@ These events are emitted during the creation and management of Kubernetes resour
 | `ServiceUpdateFailed` | Warning | Service update fails |
 | `ConfigMapCreated` | Normal | ConfigMap with Valkey configuration is created |
 | `ConfigMapUpdateFailed` | Warning | ConfigMap creation/update fails |
+| `UnsupportedConfigIgnored` | Warning | A user-supplied config directive was dropped because the detected Valkey image does not support it |
 | `ValkeyNodeCreated` | Normal | ValkeyNode CR is created for a shard/replica position |
 | `ValkeyNodeUpdated` | Normal | ValkeyNode CR spec is updated (rolling update) |
 | `ValkeyNodeFailed` | Warning | Failed to create or update a ValkeyNode CR |

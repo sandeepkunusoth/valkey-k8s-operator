@@ -51,7 +51,16 @@ const (
 	defaultTLSAutoReloadInterval = "86400"
 )
 
+// minTLSAutoReloadVersion is the minimum Valkey version that supports the
+// tls-auto-reload-interval directive.
 var minTLSAutoReloadVersion = semver.MustParse("9.1.0")
+
+// versionGatedConfig maps a config directive to the minimum Valkey version that supports it.
+// Valkey refuses to boot on an unknown directive, so any key listed here must be suppressed
+// from the rendered config if the detected Valkey version does not meet the minimum.
+var versionGatedConfig = map[string]*semver.Version{
+	tlsAutoReloadIntervalKey: minTLSAutoReloadVersion,
+}
 
 //go:embed scripts/*
 var scripts embed.FS
@@ -137,6 +146,29 @@ func getBaseConfig(cluster *valkeyiov1alpha1.ValkeyCluster) map[string]string {
 	return baseConfig
 }
 
+// gatedUserKeysToSuppress returns user-config keys that must be omitted when
+// the detected Valkey version does not meet the directive's minimum.
+func gatedUserKeysToSuppress(cluster *valkeyiov1alpha1.ValkeyCluster) []string {
+	image := effectiveImage(cluster.Spec.Image)
+	suppressed := make([]string, 0)
+
+	for key, minVersion := range versionGatedConfig {
+		if _, userSet := cluster.Spec.Config[key]; !userSet {
+			// User did not set this key, so nothing to suppress.
+			continue
+		}
+		if valkey.MeetsMinVersion(image, minVersion) {
+			// User set this key, and the detected Valkey version supports it, so nothing to suppress.
+			continue
+		}
+		// User set this key, and the detected Valkey version does not support it, so suppress it.
+		suppressed = append(suppressed, key)
+	}
+
+	slices.Sort(suppressed)
+	return suppressed
+}
+
 // liveConfigAllowlist is the set of user-config keys the operator applies live
 // via CONFIG SET. Keys outside this set roll the pod when changed.
 var liveConfigAllowlist = map[string]struct{}{
@@ -192,14 +224,25 @@ func renderServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster, excludeUserKeys
 
 // buildServerConfig renders the full config written to the shared ConfigMap.
 func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
-	return renderServerConfig(cluster, nil)
+	excludeUserKeys := map[string]struct{}{}
+	for _, key := range gatedUserKeysToSuppress(cluster) {
+		excludeUserKeys[key] = struct{}{}
+	}
+	return renderServerConfig(cluster, excludeUserKeys)
 }
 
 // buildRollServerConfig renders the config used for the rolling-update hash:
 // the full config minus the live-settable keys, so a change confined to those
 // keys does not change the hash and does not roll the pod.
 func buildRollServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
-	return renderServerConfig(cluster, liveConfigAllowlist)
+	excludeUserKeys := map[string]struct{}{}
+	for key := range liveConfigAllowlist {
+		excludeUserKeys[key] = struct{}{}
+	}
+	for _, key := range gatedUserKeysToSuppress(cluster) {
+		excludeUserKeys[key] = struct{}{}
+	}
+	return renderServerConfig(cluster, excludeUserKeys)
 }
 
 // serverConfigRollHash is the hash stamped into each node's ServerConfigHash to
@@ -227,6 +270,16 @@ func (r *ValkeyClusterReconciler) upsertConfigMap(ctx context.Context, cluster *
 	liveness, err := scripts.ReadFile("scripts/liveness-check.sh")
 	if err != nil {
 		return fmt.Errorf("reading embedded liveness-check.sh: %w", err)
+	}
+
+	// Warn when a user-supplied directive is dropped because the Valkey version
+	// detected from spec.image does not support it. Rendering it would crash the Valkey server, so we suppress it and log a warning.
+	if suppressed := gatedUserKeysToSuppress(cluster); len(suppressed) > 0 {
+		image := effectiveImage(cluster.Spec.Image)
+		log.Info("suppressing version-gated config directives not supported by the detected Valkey version",
+			"directives", suppressed, "image", image, "detectedVersion", valkey.VersionStringFromImage(image))
+		r.Recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "UnsupportedConfigIgnored", "UpsertConfigMap",
+			"Ignoring config directives %v not supported by Valkey image %q; render them only on a version that supports them", suppressed, image)
 	}
 
 	// Get the new server config

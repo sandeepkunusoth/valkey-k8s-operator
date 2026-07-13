@@ -776,6 +776,32 @@ var _ = Describe("EventRecorder", func() {
 			Expect(events).To(ContainElement(ContainSubstring("Normal")))
 		})
 
+		It("should emit a warning when suppressing an unsupported TLS config directive", func() {
+			cluster := &valkeyiov1alpha1.ValkeyCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "event-test-cluster",
+					Namespace: "default",
+				},
+				Spec: valkeyiov1alpha1.ValkeyClusterSpec{
+					Image: "valkey/valkey:9.0.0",
+					Config: map[string]string{
+						"tls-auto-reload-interval": "3600",
+					},
+					TLS: &valkeyiov1alpha1.TLSConfig{
+						Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "valkey-tls"},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, cluster) }()
+
+			Expect(r.upsertConfigMap(ctx, cluster)).To(Succeed())
+
+			events := collectEvents(fakeRecorder)
+			Expect(events).To(ContainElement(ContainSubstring("UnsupportedConfigIgnored")))
+			Expect(events).To(ContainElement(ContainSubstring("Warning")))
+		})
+
 	})
 
 	Context("When reconciling cluster state", func() {

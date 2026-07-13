@@ -106,6 +106,28 @@ var _ = Describe("Live config", Label("liveconfig"), func() {
 		Expect(after).NotTo(Equal(before))
 	})
 
+	It("keeps the roll hash stable when only a gated key is suppressed", func() {
+		newTLSCluster := func(image string, cfg map[string]string) *valkeyiov1alpha1.ValkeyCluster {
+			return &valkeyiov1alpha1.ValkeyCluster{
+				Spec: valkeyiov1alpha1.ValkeyClusterSpec{
+					Image:  image,
+					Config: cfg,
+					TLS: &valkeyiov1alpha1.TLSConfig{
+						Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "valkey-tls"},
+					},
+				},
+			}
+		}
+
+		before := serverConfigRollHash(newTLSCluster("valkey/valkey:9.0.0", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		}))
+		after := serverConfigRollHash(newTLSCluster("valkey/valkey:9.0.0", map[string]string{
+			"tls-auto-reload-interval": "7200",
+		}))
+		Expect(after).To(Equal(before))
+	})
+
 	It("liveConfigToApply returns only allowlisted keys present in config", func() {
 		out := liveConfigToApply(map[string]string{
 			"maxmemory-policy": "allkeys-lru",
@@ -147,14 +169,28 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(config).NotTo(ContainSubstring("tls-auto-reload-interval 86400"))
 	})
 
-	It("skips the directive when the version is below 9.1", func() {
-		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
+	It("suppresses a user-supplied value when the version is below 9.1", func() {
+		cluster := newTLSCluster("valkey/valkey:9.0.0", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		})
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
 	})
 
-	It("skips the directive when the version cannot be determined", func() {
-		cluster := newTLSCluster("valkey/valkey:latest", nil)
+	It("suppresses a user-supplied value when the version cannot be determined", func() {
+		cluster := newTLSCluster("valkey/valkey:latest", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		})
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
+	})
+
+	It("suppresses only the gated key and keeps other user config on old versions", func() {
+		cluster := newTLSCluster("valkey/valkey:9.0.0", map[string]string{
+			"tls-auto-reload-interval": "3600",
+			"maxmemory-policy":         "allkeys-lru",
+		})
+		config := buildServerConfig(cluster)
+		Expect(config).NotTo(ContainSubstring("tls-auto-reload-interval"))
+		Expect(config).To(ContainSubstring("maxmemory-policy allkeys-lru"))
 	})
 
 	It("skips the directive when TLS is not enabled", func() {
