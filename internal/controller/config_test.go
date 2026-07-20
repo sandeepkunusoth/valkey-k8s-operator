@@ -147,12 +147,19 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(config).NotTo(ContainSubstring("tls-auto-reload-interval 86400"))
 	})
 
-	It("skips the directive when the version is below 9.1", func() {
+	It("keeps a user-set directive even when the version is below 9.1", func() {
+		cluster := newTLSCluster("valkey/valkey:9.0.0", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		})
+		Expect(buildServerConfig(cluster)).To(ContainSubstring("tls-auto-reload-interval 3600"))
+	})
+
+	It("skips the directive when the version is below 9.1 and the key is unset", func() {
 		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
 	})
 
-	It("skips the directive when the version cannot be determined", func() {
+	It("skips the directive when the version cannot be determined and the key is unset", func() {
 		cluster := newTLSCluster("valkey/valkey:latest", nil)
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
 	})
@@ -164,7 +171,7 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
 	})
 
-	It("defaults via the empty-image path using DefaultImage", func() {
+	It("skips the directive when TLS is enabled but the image is empty", func() {
 		cluster := newTLSCluster("", nil)
 		Expect(buildServerConfig(cluster)).NotTo(ContainSubstring("tls-auto-reload-interval"))
 	})
