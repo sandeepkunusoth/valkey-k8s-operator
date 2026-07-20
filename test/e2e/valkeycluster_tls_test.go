@@ -31,7 +31,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	valkeyiov1alpha1 "github.com/valkey-io/valkey-operator/api/v1alpha1"
-  "github.com/valkey.io/valkey-operator/internal/controller"
+	"github.com/valkey-io/valkey-operator/internal/controller"
 	"github.com/valkey-io/valkey-operator/test/utils"
 )
 

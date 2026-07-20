@@ -40,7 +40,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	valkeyiov1alpha1 "github.com/valkey-io/valkey-operator/api/v1alpha1"
-  "github.com/valkey.io/valkey-operator/internal/valkey"
+	"github.com/valkey-io/valkey-operator/internal/valkey"
 )
 
 const (
