@@ -169,7 +169,7 @@ func versionGateWarning(cluster *valkeyiov1alpha1.ValkeyCluster) (string, bool) 
 	image := effectiveImage(cluster.Spec.Image)
 	version := valkey.VersionStringFromImage(image)
 	if version == "" {
-		version = "undetermined"
+		version = "unknown"
 	}
 
 	for key, minVersion := range versionGatedConfig {
