@@ -378,7 +378,7 @@ spec:
 			for _, c := range cr.Status.Conditions {
 				if c.Type == valkeyiov1alpha1.ConditionConfigurationWarning &&
 					c.Reason == valkeyiov1alpha1.ReasonUnsupportedConfigDirective {
-					Expect(c.Status).To(Equal("True"))
+					Expect(string(c.Status)).To(Equal("True"))
 					Expect(c.Message).To(ContainSubstring("tls-auto-reload-interval"))
 					Expect(c.Message).To(ContainSubstring("9.1.0"))
 					Expect(c.Message).To(ContainSubstring("9.0.0"))
