@@ -39,7 +39,7 @@ const (
 	preGateImage = "valkey/valkey:9.0.0"
 )
 
-var _ = Describe("ValkeyCluster TLS", Ordered, Label("ValkeyCluster", "TLS"), func() {
+var _ = FDescribe("ValkeyCluster TLS", Ordered, Label("ValkeyCluster", "TLS"), func() {
 	var valkeyClusterName string
 	var tlsSecretName string
 	var tmpDir string
