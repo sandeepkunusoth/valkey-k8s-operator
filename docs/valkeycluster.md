@@ -145,7 +145,7 @@ Some user-set `spec.config` directives are only valid on newer Valkey releases. 
 
 The warning message names the directive, the minimum supported Valkey version, and the detected version. The operator also emits a Kubernetes `Warning` event on the transition into this state. If you later switch to a supporting image, the condition clears on the next reconcile.
 
-The current version-gated directive is:
+for example:
 
 - `tls-auto-reload-interval` requires Valkey `9.1.0` or newer
 
