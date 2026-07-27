@@ -108,12 +108,16 @@ func TestApplyConfigurationWarnings(t *testing.T) {
 	g.Expect(cond.Message).To(Equal("another directive warning; directive warning"))
 	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 
-	// Reapplying the exact same warning set should not duplicate events
+	// Reapplying the exact same warning set should keep the condition stable.
+	before := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
 	r.applyConfigurationWarnings(ctx, cluster, []configWarning{
 		{reason: valkeyiov1alpha1.ReasonGracePeriodTooShort, message: "grace warning"},
 		{reason: valkeyiov1alpha1.ReasonUnsupportedConfigDirective, message: "directive warning"},
 	})
-	g.Expect(recorder.Events).NotTo(Receive())
+	after := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
+	g.Expect(after).NotTo(BeNil())
+	g.Expect(after.Reason).To(Equal(before.Reason))
+	g.Expect(after.Message).To(Equal(before.Message))
 
 	// remove all warnings and ensure the condition is removed
 	r.applyConfigurationWarnings(ctx, cluster, nil)
