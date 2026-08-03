@@ -7,6 +7,12 @@
 
 > **Requires Valkey >= 9.0.0** for `authClientsUser: CN`/`URI`.
 
+## Valkey defaults vs operator defaults for mTLS
+
+By default, Valkey uses mutual TLS and requires clients to present a valid certificate verified against trusted root CAs configured via `tls-ca-cert-file` or `tls-ca-cert-dir`. You may use `tls-auth-clients no` to disable client authentication.
+
+When `spec.tls.authClients` is omitted, the operator defaults it to `Optional` and renders `tls-auth-clients optional` so TLS clients can connect without presenting a client certificate. Set `authClients: Required` to enforce mTLS (`tls-auth-clients yes`), or `authClients: Disabled` to turn client certificate processing off (`tls-auth-clients no`).
+
 ## Quick start
 
 ```yaml
@@ -32,12 +38,6 @@ spec:
 With `authClients: Required` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
 
 With `authClients: Required`, Valkey requires a valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter all present the server certificate to satisfy this.
-
-## Valkey defaults vs operator defaults for mTLS
-
-By default, Valkey uses mutual TLS and requires clients to present a valid certificate verified against trusted root CAs configured via `tls-ca-cert-file` or `tls-ca-cert-dir`. You may use `tls-auth-clients no` to disable client authentication.
-
-When `spec.tls.authClients` is omitted, the operator defaults it to `Optional` and renders `tls-auth-clients optional` so TLS clients can connect without presenting a client certificate. Set `authClients: Required` to enforce mTLS (`tls-auth-clients yes`), or `authClients: Disabled` to turn client certificate processing off (`tls-auth-clients no`).
 
 ## Configuration
 
