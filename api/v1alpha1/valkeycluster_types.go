@@ -335,7 +335,7 @@ type ValkeyClusterSpec struct {
 }
 
 // TLSAuthClients controls how Valkey treats incoming client TLS certificates.
-// It mirrors the Valkey `tls-auth-clients` directive.
+// API enum values are mapped to Valkey `tls-auth-clients` directive values.
 // +kubebuilder:validation:Enum=Required;Optional;Disabled
 type TLSAuthClients string
 
@@ -413,7 +413,8 @@ type TLSConfig struct {
 	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
 	// and unauthenticated clients, and `Disabled` turns client certificate
 	// processing off entirely.
-	// +kubebuilder:default=Required
+	// Defaults to `Optional`.
+	// +kubebuilder:default=Optional
 	// +optional
 	AuthClients TLSAuthClients `json:"authClients,omitempty"`
 

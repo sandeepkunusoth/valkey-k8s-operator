@@ -20,7 +20,7 @@ spec:
   tls:
     certificate:
       secretName: valkey-server-tls
-    authClients: "yes"
+    authClients: Required
     authClientsUser: CN
   users:
     - name: alice
@@ -29,34 +29,34 @@ spec:
       permissions: "+@all ~app:* &events:*"
 ```
 
-With `authClients: "yes"` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
+With `authClients: Required` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
 
-When `authClients` is left at its default `yes`, Valkey clients requires any valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter uses server certs to validate clients when `authClients: "yes"` is set.
+With `authClients: Required`, Valkey requires a valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter all present the server certificate to satisfy this.
 
 ## Configuration
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `authClients` | enum | `yes` | One of `optional`, `yes`, `no` - the literal `tls-auth-clients` directive values. Controls whether clients must present a TLS certificate. |
-| `authClientsUser` | enum | `off` | One of `CN`, `URI`, `off`. When `CN`, the certificate's Common Name is mapped to an ACL user; when `URI`, the first matching URI SAN is used. Requires Valkey >= 9.0.0. |
+| `authClients` | enum | `Optional` | One of `Optional`, `Required`, `Disabled`. Controls whether clients must present a TLS certificate. |
+| `authClientsUser` | enum | `Disabled` | One of `CN`, `URI`, `Disabled`. When `CN`, the certificate's Common Name is mapped to an ACL user; when `URI`, the first matching URI SAN is used. Requires Valkey >= 9.0.0. |
 
-`authClientsUser: CN` or `authClientsUser: URI` has no effect when `authClients: "no"` (Valkey ignores client certificates entirely), so this combination is rejected at admission time.
+`authClientsUser: CN` or `authClientsUser: URI` has no effect when `authClients: Disabled` (Valkey ignores client certificates entirely), so this combination is rejected at admission time.
 
 ### `authClients` values
 
-`authClients` accepts the same values as the Valkey `tls-auth-clients` directive.
+`authClients` API values are mapped to Valkey `tls-auth-clients` directive values when the operator renders the config.
 
 | Spec value | Rendered Valkey directive | Meaning |
 |---|---|---|
-| "optional" | `tls-auth-clients optional` | Both authenticated and unauthenticated TLS clients are allowed. |
-| "yes" | `tls-auth-clients yes` | Default. Enforces mTLS -- clients without a valid client certificate are rejected at the TLS handshake. |
-| "no" | `tls-auth-clients no` | The server ignores client certificates entirely. |
+| `Optional` | `tls-auth-clients optional` | Default. Both authenticated and unauthenticated TLS clients are allowed. |
+| `Required` | `tls-auth-clients yes` | Default. Enforces mTLS -- clients without a valid client certificate are rejected at the TLS handshake. |
+| `Disabled` | `tls-auth-clients no` | The server ignores client certificates entirely. |
 
 ### Rendered Valkey configuration (valkey.conf)
 
 ```text
-tls-auth-clients "yes"    # 'yes' enforces mTLS; use 'no' to ignore client certificates
-tls-auth-clients-user CN/URI   # set only when authClientsUser=CN or authClientsUser=URI
+tls-auth-clients "yes"    # rendered from authClients: Required
+tls-auth-clients-user CN/URI   # rendered from authClientsUser=CN or authClientsUser=URI
 ```
 
 The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, etc.) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md#tls).
@@ -123,7 +123,7 @@ valkey-cli \
 
 #### Never use `nopass: true` on cert-mapped users with either `authClientsUser: CN` or `authClientsUser: URI`
 
-**Risk:** `nopass: true` allows any client to issue `AUTH <user> <any-password>` and succeed -- regardless of whether they hold the correct client certificate. This applies even with `authClients: "yes"`: a client that passes the TLS handshake with any valid CA-signed cert with any CN/URI can then authenticate as any `nopass` user via `AUTH`.
+**Risk:** `nopass: true` allows any client to issue `AUTH <user> <any-password>` and succeed -- regardless of whether they hold the correct client certificate. This applies even with `authClients: Required`: a client that passes the TLS handshake with any valid CA-signed cert with any CN/URI can then authenticate as any `nopass` user via `AUTH`.
 
 To enforce strict mTLS authentication:
 
