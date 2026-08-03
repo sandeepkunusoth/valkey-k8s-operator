@@ -5,7 +5,7 @@
 1. Clients can be required to present a TLS certificate (mTLS), and
 2. Authenticated clients can be automatically logged in as a Valkey ACL user matching the certificate's Common Name (CN) or URI SAN.
 
-> **Requires Valkey >= 9.0.0** for `authClientsUser: CN`/`URI`. The `tls-auth-clients-user` directive landed in Valkey 9.0.0. The default operator image (`valkey/valkey:9.0.0`) is sufficient.
+> **Requires Valkey >= 9.0.0** for `authClientsUser: CN`/`URI`.
 
 ## Quick start
 
@@ -29,9 +29,9 @@ spec:
       permissions: "+@all ~app:* &events:*"
 ```
 
-With `authClients: yes` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
+With `authClients: "yes"` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
 
-When `authClients` is left at its default `yes`, Valkey clients requires any valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter uses server certs to validate clients when `authClients: yes` is set.
+When `authClients` is left at its default `yes`, Valkey clients requires any valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter uses server certs to validate clients when `authClients: "yes"` is set.
 
 ## Configuration
 
@@ -55,11 +55,11 @@ When `authClients` is left at its default `yes`, Valkey clients requires any val
 ### Rendered Valkey configuration (valkey.conf)
 
 ```text
-tls-auth-clients yes      # 'yes' enforces mTLS; use 'no' to ignore client certificates
+tls-auth-clients "yes"    # 'yes' enforces mTLS; use 'no' to ignore client certificates
 tls-auth-clients-user CN/URI   # set only when authClientsUser=CN or authClientsUser=URI
 ```
 
-The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, etc.) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md).
+The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, etc.) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md#tls).
 
 ## Issuing certificates with cert-manager
 
@@ -123,11 +123,11 @@ valkey-cli \
 
 #### Never use `nopass: true` on cert-mapped users with either `authClientsUser: CN` or `authClientsUser: URI`
 
-**Risk:** `nopass: true` allows any client to issue `AUTH <user> <any-password>` and succeed -- reguardless of whether they hold the correct client certificate. This applies even with `authClients: "yes"`: a client that passes the TLS handshake with any valid CA-signed cert with any CN/URI can then authenticate as any `nopass` user via `AUTH`.
+**Risk:** `nopass: true` allows any client to issue `AUTH <user> <any-password>` and succeed -- regardless of whether they hold the correct client certificate. This applies even with `authClients: "yes"`: a client that passes the TLS handshake with any valid CA-signed cert with any CN/URI can then authenticate as any `nopass` user via `AUTH`.
 
-To enforce strict mTLS  authentication:
+To enforce strict mTLS authentication:
 
-Always set `resetpass: true` instead. This flushes all passwords and disables `nopass` making password-based `AUTH` impossible. The user can then only be authenticated via the CN/URI from the client certiificate.
+Always set `resetpass: true` instead. This flushes all passwords and disables `nopass`, making password-based `AUTH` impossible. The user can then only be authenticated via the CN/URI from the client certificate.
 
 ```yaml
 users:

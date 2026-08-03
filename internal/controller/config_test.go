@@ -86,34 +86,34 @@ var _ = Describe("TLSConfig CEL admission rules", Label("tls", "cel"), func() {
 		}
 	}
 
-	It("rejects authClients=no with authClientsUser=CN", func() {
+	It("rejects authClients=Disabled with authClientsUser=CN", func() {
 		cluster := newCluster("cel-disabled-cn", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserCN)
 		err := k8sClient.Create(ctx, cluster)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("authClientsUser=CN"))
 	})
 
-	It("rejects authClients=no with authClientsUser=URI", func() {
+	It("rejects authClients=Disabled with authClientsUser=URI", func() {
 		cluster := newCluster("cel-disabled-uri", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserURI)
 		err := k8sClient.Create(ctx, cluster)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("authClientsUser=CN/URI"))
 	})
 
-	It("accepts authClients=yes with authClientsUser=CN", func() {
+	It("accepts authClients=Required with authClientsUser=CN", func() {
 		cluster := newCluster("cel-required-cn", valkeyiov1alpha1.TLSAuthClientsRequired, valkeyiov1alpha1.TLSAuthClientsUserCN)
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 	})
 
-	It("accepts authClients=yes with authClientsUser=URI", func() {
+	It("accepts authClients=Required with authClientsUser=URI", func() {
 		cluster := newCluster("cel-required-uri", valkeyiov1alpha1.TLSAuthClientsRequired, valkeyiov1alpha1.TLSAuthClientsUserURI)
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 	})
 
-	It("accepts authClients=no with authClientsUser=off", func() {
-		cluster := newCluster("cel-disabled-off", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserOff)
+	It("accepts authClients=Disabled with authClientsUser=Disabled", func() {
+		cluster := newCluster("cel-disabled-off", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserDisabled)
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 		Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 	})

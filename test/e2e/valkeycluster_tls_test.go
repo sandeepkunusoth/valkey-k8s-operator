@@ -387,7 +387,7 @@ spec:
   tls:
     certificate:
       secretName: %s
-    authClients: "yes"
+    authClients: Required
     authClientsUser: CN
   users:
     - name: alice
@@ -483,7 +483,7 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsClientPodName, "--ignore-not-found=true"))
 	})
 
-	// Verifies that primary <-> replica replication works under authClients=yes
+	// Verifies that primary <-> replica replication works under authClients=Required
 	It("replicates data from primary to replica when mTLS authClients is enabled", func() {
 		// get the primary pod by querying ValkeyNode status.role == "primary".
 		var primaryPod string
@@ -554,7 +554,7 @@ spec:
 		_, err = utils.Run(exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", mtlsNoCertPodName),
 			"--for=jsonpath={.status.phase}=Failed", "--timeout=120s"))
 		Expect(err).NotTo(HaveOccurred(),
-			"client without a certificate should fail under authClients=yes")
+			"client without a certificate should fail under authClients=Required")
 
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsNoCertPodName, "--ignore-not-found=true"))
 	})

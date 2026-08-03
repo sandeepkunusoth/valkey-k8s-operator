@@ -276,6 +276,8 @@ tls:
 | `tls.crt` | Server certificate (or chain) |
 | `tls.key` | Private key for the certificate |
 
+For certificate-based client authentication and ACL mapping, see [Mutual TLS (mTLS) certificate-based ACL authentication](./mtls.md).
+
 ### Users
 
 ```yaml
@@ -342,3 +344,4 @@ graph TD
 `ValkeyNode` is an internal CRD — do not create or modify ValkeyNodes directly. All configuration goes through `ValkeyCluster`. See [ValkeyNode design](./valkeynode-design.md) for why this abstraction exists.
 
 For status conditions and events, see [status-conditions.md](./status-conditions.md).
+
