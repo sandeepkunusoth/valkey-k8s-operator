@@ -119,10 +119,7 @@ var _ = Describe("TLSConfig CEL admission rules", Label("tls", "cel"), func() {
 	})
 
 	It("defaults authClients to Optional so an existing TLS cluster keeps its behaviour", func() {
-		cluster := getSampleCluster()
-		cluster.Spec.TLS = &valkeyiov1alpha1.TLSConfig{
-			Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "tls-secret"},
-		}
+		cluster := newCluster("cel-default-optional", "", "")
 
 		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 		defer func() {
