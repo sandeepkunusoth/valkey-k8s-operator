@@ -33,6 +33,12 @@ With `authClients: Required` + `authClientsUser: CN`, any TLS client whose certi
 
 With `authClients: Required`, Valkey requires a valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter all present the server certificate to satisfy this.
 
+## Valkey defaults vs operator defaults for mTLS
+
+By default, Valkey uses mutual TLS and requires clients to present a valid certificate verified against trusted root CAs configured via `tls-ca-cert-file` or `tls-ca-cert-dir`. You may use `tls-auth-clients no` to disable client authentication.
+
+When `spec.tls.authClients` is omitted, the operator defaults it to `Optional` and renders `tls-auth-clients optional` so TLS clients can connect without presenting a client certificate. Set `authClients: Required` to enforce mTLS (`tls-auth-clients yes`), or `authClients: Disabled` to turn client certificate processing off (`tls-auth-clients no`).
+
 ## Configuration
 
 | Field | Type | Default | Description |
@@ -49,14 +55,14 @@ With `authClients: Required`, Valkey requires a valid client certificate at the 
 | Spec value | Rendered Valkey directive | Meaning |
 |---|---|---|
 | `Optional` | `tls-auth-clients optional` | Default. Both authenticated and unauthenticated TLS clients are allowed. |
-| `Required` | `tls-auth-clients yes` | Default. Enforces mTLS -- clients without a valid client certificate are rejected at the TLS handshake. |
+| `Required` | `tls-auth-clients yes` | Enforces mTLS -- clients without a valid client certificate are rejected at the TLS handshake. |
 | `Disabled` | `tls-auth-clients no` | The server ignores client certificates entirely. |
 
 ### Rendered Valkey configuration (valkey.conf)
 
 ```text
 tls-auth-clients "yes"    # rendered from authClients: Required
-tls-auth-clients-user CN/URI   # rendered from authClientsUser=CN or authClientsUser=URI
+tls-auth-clients-user CN/URI   # rendered from authClientsUser: CN or authClientsUser: URI
 ```
 
 The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, etc.) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md#tls).

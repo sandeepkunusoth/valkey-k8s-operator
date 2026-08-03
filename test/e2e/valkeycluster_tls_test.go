@@ -143,6 +143,22 @@ spec:
 			Expect(output).To(Equal("/tls"))
 		})
 
+		It("defaults spec.tls.authClients to Optional when omitted and renders tls-auth-clients optional", func() {
+			cr, err := utils.GetValkeyClusterStatus(valkeyClusterName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(cr.Spec.TLS.AuthClients).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+			Expect(cr.Spec.TLS.AuthClientsUser).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+
+			cmd := exec.Command("kubectl", "get", "configmap",
+				fmt.Sprintf("valkey-%s", valkeyClusterName),
+				"-o", "jsonpath={.data.valkey\\.conf}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("tls-auth-clients optional"))
+			Expect(output).NotTo(ContainSubstring("tls-auth-clients yes"))
+			Expect(output).NotTo(ContainSubstring("tls-auth-clients-user CN"))
+		})
+
 		It("allows cluster access via TLS", func() {
 			clusterFqdn := fmt.Sprintf("valkey-%s.default.svc.cluster.local", valkeyClusterName)
 
@@ -483,7 +499,7 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsClientPodName, "--ignore-not-found=true"))
 	})
 
-	// Verifies that primary <-> replica replication works under authClients=Required
+	// Verifies that primary <-> replica replication works under authClients=Required.
 	It("replicates data from primary to replica when mTLS authClients is enabled", func() {
 		// get the primary pod by querying ValkeyNode status.role == "primary".
 		var primaryPod string
