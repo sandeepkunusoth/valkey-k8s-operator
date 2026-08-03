@@ -63,6 +63,7 @@ var (
 			"+cluster|migrateslots",      // migrate slots between shards
 			"+cluster|set-config-epoch",  // set epoch on new nodes
 			"+config|set",                // apply live config changes
+			"+config|get",                // verify applied config / audit current state
 			"+info",                      // node info and replication status
 			"+role",                      // current replication role
 		}, " "),
@@ -112,7 +113,7 @@ func operatorUserPasswordSecret(clusterName string) *corev1.SecretKeySelector {
 
 func (r *ValkeyClusterReconciler) createSystemUsersAcl(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) (string, error) {
 	log := logf.FromContext(ctx)
-	log.Info("getting system users secret: " + cluster.Name)
+	log.V(1).Info("getting system users secret: " + cluster.Name)
 	var systemsAcls strings.Builder
 	systemUserSecret := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{
