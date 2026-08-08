@@ -2050,7 +2050,7 @@ spec:
 			patchCmd := exec.Command("kubectl", "patch", "valkeycluster", clusterName,
 				"--type=merge", "-p",
 				`{"spec":{"resources":{"requests":{"cpu":"100m","memory":"384Mi"},"limits":{"cpu":"500m","memory":"512Mi"}}}}`)
-			_, err = utils.Run(patchCmd)
+			_, err := utils.Run(patchCmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to patch ValkeyCluster resources")
 
 			By("waiting for the cluster to enter the UpdatingNodes progressing state")
