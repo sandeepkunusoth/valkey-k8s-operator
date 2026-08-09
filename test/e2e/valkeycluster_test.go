@@ -1942,7 +1942,7 @@ spec:
 		}
 
 		countStatefulSetsWithExporterArg := func(g Gomega, arg string) int {
-			return countStatefulSetContainers(g, func(name, img string, args []string) bool {
+			return countStatefulSetContainers(g, func(name, _ string, args []string) bool {
 				if name != "metrics-exporter" {
 					return false
 				}
@@ -1980,19 +1980,20 @@ spec:
 				out, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 
-				presentByName := make(map[string]string, len(utils.GetNonEmptyLines(out)))
-				for _, line := range utils.GetNonEmptyLines(out) {
+				lines := utils.GetNonEmptyLines(out)
+				nameToUID := make(map[string]string, len(lines))
+				for _, line := range lines {
 					parts := strings.SplitN(line, "=", 2)
 					if len(parts) != 2 {
 						continue
 					}
-					presentByName[parts[0]] = parts[1]
+					nameToUID[parts[0]] = parts[1]
 				}
 
 				missing := 0
 				restarted := 0
 				for name, oldUID := range baselineUIDs {
-					uid, ok := presentByName[name]
+					uid, ok := nameToUID[name]
 					if !ok {
 						missing++
 						continue
