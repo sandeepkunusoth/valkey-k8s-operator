@@ -1943,12 +1943,6 @@ spec:
 
 		countStatefulSetsWithExporterArg := func(g Gomega, arg string) int {
 			return countStatefulSetContainers(g, func(name, img string, args []string) bool {
-				return name == "exporter" && utils.ContainsString(args, arg)
-			})
-		}
-
-		countStatefulSetsWithServerImage := func(g Gomega, image string) int {
-			return countStatefulSetContainers(g, func(name, img string, _ []string) bool {
 				if name != "metrics-exporter" {
 					return false
 				}
@@ -1958,6 +1952,12 @@ spec:
 					}
 				}
 				return false
+			})
+		}
+
+		countStatefulSetsWithServerImage := func(g Gomega, image string) int {
+			return countStatefulSetContainers(g, func(name, img string, _ []string) bool {
+				return name == "server" && img == image
 			})
 		}
 
