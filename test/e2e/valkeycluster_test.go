@@ -1941,9 +1941,23 @@ spec:
 			return updated
 		}
 
+		countStatefulSetsWithExporterArg := func(g Gomega, arg string) int {
+			return countStatefulSetContainers(g, func(name, img string, args []string) bool {
+				return name == "exporter" && utils.ContainsString(args, arg)
+			})
+		}
+
 		countStatefulSetsWithServerImage := func(g Gomega, image string) int {
 			return countStatefulSetContainers(g, func(name, img string, _ []string) bool {
-				return name == "server" && img == image
+				if name != "metrics-exporter" {
+					return false
+				}
+				for _, a := range args {
+					if a == arg {
+						return true
+					}
+				}
+				return false
 			})
 		}
 
@@ -1987,9 +2001,6 @@ spec:
 						restarted++
 					}
 				}
-				if restarted > maxConcurrentRestarts {
-					maxConcurrentRestarts = restarted
-				}
 				inFlight := missing
 				if inFlight > maxConcurrentRestarts {
 					maxConcurrentRestarts = inFlight
@@ -1998,28 +2009,38 @@ spec:
 					g.Expect(inFlight).To(BeNumerically("<=", 1),
 						"expected at most one concurrent pod restart, saw %d", inFlight)
 				}
-				if updated > 0 && updated < expectedPods {
-					sawPartial = true
-				}
 				if restarted > 0 && restarted < expectedPods {
 					sawPartial = true
 				}
-				if countAwaitingWorkloadRevision(g) > 0 {
-					sawPartial = true
+
+				if len(baselineRevs) > 0 {
+					currentRevs := nodeWorkloadRevisions(g)
+					advanced := 0
+					for name, baselineRev := range baselineRevs {
+						if rev, ok := currentRevs[name]; ok && rev != baselineRev && rev != "" {
+							advanced++
+						}
+					}
+					if advanced > 0 && advanced < expectedPods {
+						sawPartial = true
+					}
+					if countAwaitingWorkloadRevision(g) > 0 {
+						sawPartial = true
+					}
+				}
+
+				g.Expect(updated).To(Equal(expectedPods), "not all workloads updated yet")
+				g.Expect(restarted).To(Equal(expectedPods), "not all pods replaced yet")
+				if len(baselineRevs) > 0 {
+					currentRevs := nodeWorkloadRevisions(g)
+					g.Expect(countAwaitingWorkloadRevision(g)).To(Equal(0), "nodes still awaiting workload revision")
+					for name, baselineRev := range baselineRevs {
+						g.Expect(currentRevs[name]).NotTo(Equal(baselineRev))
+						g.Expect(currentRevs[name]).NotTo(BeEmpty())
+					}
 				}
 
 			}).Should(Succeed())
-
-			g.Expect(updated).To(Equal(expectedPods), "not all workloads updated yet")
-			g.Expect(restarted).To(Equal(expectedPods), "not all pods replaced yet")
-			if len(baselineRevs) > 0 {
-				currentRevs := nodeWorkloadRevisions(g)
-				g.Expect(countAwaitingWorkloadRevision(g)).To(Equal(0), "nodes still awaiting workload revision")
-				for name, baselineRev := range baselineRevs {
-					g.Expect(currentRevs[name]).NotTo(Equal(baselineRev))
-					g.Expect(currentRevs[name]).NotTo(BeEmpty())
-				}
-			}
 
 			Expect(sawPartial).To(BeTrue(), "expected to observe a partially rolled state")
 			Expect(maxConcurrentRestarts).To(BeNumerically("<=", 1),
