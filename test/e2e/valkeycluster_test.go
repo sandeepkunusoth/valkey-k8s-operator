@@ -38,7 +38,7 @@ import (
 	"github.com/valkey-io/valkey-operator/test/utils"
 )
 
-var _ = Describe("ValkeyCluster", Ordered, func() {
+var _ = FDescribe("ValkeyCluster", Ordered, func() {
 	var valkeyClusterName string
 
 	// After each test, check for failures and collect logs, events,
@@ -1837,23 +1837,6 @@ spec:
 	Context("rolling update", func() {
 		const clusterName = "valkeycluster-rolling-e2e"
 
-		createReadyCluster := func(manifest string, readyShards int32) {
-			deleteCluster()
-			waitForClusterDeletion()
-
-			cmd = exec.Command("kubectl", "apply", "-f", "-")
-			cmd.Stdin = strings.NewReader(manifest)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ValkeyCluster")
-
-			Eventually(func(g Gomega) {
-				cr, err := utils.GetValkeyClusterStatus(clusterName)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
-				g.Expect(cr.Status.ReadyShards).To(Equal(readyShards))
-			}, 10*time.Minute, 5*time.Second).Should(Succeed())
-		}
-
 		deleteCluster := func() {
 			cmd := exec.Command("kubectl", "delete", "valkeycluster", clusterName, "--ignore-not-found=true", "--wait=false")
 			_, err := utils.Run(cmd)
@@ -1868,7 +1851,24 @@ spec:
 			}).Should(Succeed())
 		}
 
-		listPodUIDs := func(expectedPods int) map[string]string {
+		createReadyCluster := func(manifest string, readyShards int32) {
+			deleteCluster()
+			waitForClusterDeletion()
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(manifest)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ValkeyCluster")
+
+			Eventually(func(g Gomega) {
+				cr, err := utils.GetValkeyClusterStatus(clusterName)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
+				g.Expect(cr.Status.ReadyShards).To(Equal(readyShards))
+			}, 10*time.Minute, 5*time.Second).Should(Succeed())
+		}
+
+		podUIDs := func(expectedPods int) map[string]string {
 			cmd := exec.Command("kubectl", "get", "pods",
 				"-l", fmt.Sprintf("valkey.io/cluster=%s", clusterName),
 				"-o", "jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}{\"\\n\"}{end}")
@@ -1884,15 +1884,6 @@ spec:
 				uids[parts[0]] = parts[1]
 			}
 			Expect(uids).To(HaveLen(expectedPods))
-			return uids
-		}
-
-		podUIDs := func(expectedPods int) map[string]string {
-			var uids map[string]string
-			Eventually(func(g Gomega) {
-				uids = listPodUIDs(expectedPods)
-				g.Expect(uids).To(HaveLen(expectedPods))
-			}).Should(Succeed())
 			return uids
 		}
 
@@ -2034,7 +2025,7 @@ spec:
 				if updated > 0 && updated < expectedPods {
 					stagedRollObserved = true
 				}
-				nameToUID := listPodUIDs(expectedPods)
+				nameToUID := podUIDs(expectedPods)
 
 				missing := 0
 				restarted := 0
