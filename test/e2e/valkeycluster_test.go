@@ -1838,13 +1838,8 @@ spec:
 		const clusterName = "valkeycluster-rolling-e2e"
 
 		createReadyCluster := func(manifest string, readyShards int32) {
-			cmd := exec.Command("kubectl", "delete", "valkeycluster", clusterName, "--ignore-not-found=true", "--wait=true", "--timeout=5m")
-			_, _ = utils.Run(cmd)
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "valkeycluster", clusterName)
-				_, err := utils.Run(cmd)
-				g.Expect(err).To(HaveOccurred())
-			}).Should(Succeed())
+			deleteCluster()
+			waitForClusterDeletion()
 
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(manifest)
@@ -1856,15 +1851,24 @@ spec:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 				g.Expect(cr.Status.ReadyShards).To(Equal(readyShards))
-			}).Should(Succeed())
+			}, 10*time.Minute, 5*time.Second).Should(Succeed())
 		}
 
 		deleteCluster := func() {
 			cmd := exec.Command("kubectl", "delete", "valkeycluster", clusterName, "--ignore-not-found=true", "--wait=false")
-			_, _ = utils.Run(cmd)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete ValkeyCluster")
 		}
 
-		podUIDs := func(expectedPods int) map[string]string {
+		waitForClusterDeletion := func() {
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "valkeycluster", clusterName)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+		}
+
+		listPodUIDs := func(expectedPods int) map[string]string {
 			cmd := exec.Command("kubectl", "get", "pods",
 				"-l", fmt.Sprintf("valkey.io/cluster=%s", clusterName),
 				"-o", "jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}{\"\\n\"}{end}")
@@ -1880,6 +1884,15 @@ spec:
 				uids[parts[0]] = parts[1]
 			}
 			Expect(uids).To(HaveLen(expectedPods))
+			return uids
+		}
+
+		podUIDs := func(expectedPods int) map[string]string {
+			var uids map[string]string
+			Eventually(func(g Gomega) {
+				uids = listPodUIDs(expectedPods)
+				g.Expect(uids).To(HaveLen(expectedPods))
+			}).Should(Succeed())
 			return uids
 		}
 
@@ -2011,7 +2024,7 @@ spec:
 
 		assertStagedRoll := func(baselineUIDs map[string]string, expectedPods int, baselineRevs map[string]string, updatedSTs func(g Gomega) int) {
 			maxConcurrentRestarts := 0
-			sawPartial := false
+			stagedRollObserved := false
 			rollComplete := func(updated, restarted int) bool {
 				return updated == expectedPods && restarted == expectedPods
 			}
@@ -2019,24 +2032,9 @@ spec:
 			Eventually(func(g Gomega) {
 				updated := updatedSTs(g)
 				if updated > 0 && updated < expectedPods {
-					sawPartial = true
+					stagedRollObserved = true
 				}
-
-				cmd := exec.Command("kubectl", "get", "pods",
-					"-l", fmt.Sprintf("valkey.io/cluster=%s", clusterName),
-					"-o", "jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}{\"\\n\"}{end}")
-				out, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				lines := utils.GetNonEmptyLines(out)
-				nameToUID := make(map[string]string, len(lines))
-				for _, line := range lines {
-					parts := strings.SplitN(line, "=", 2)
-					if len(parts) != 2 {
-						continue
-					}
-					nameToUID[parts[0]] = parts[1]
-				}
+				nameToUID := listPodUIDs(expectedPods)
 
 				missing := 0
 				restarted := 0
@@ -2059,7 +2057,7 @@ spec:
 						"expected at most one concurrent pod restart, saw %d", inFlight)
 				}
 				if restarted > 0 && restarted < expectedPods {
-					sawPartial = true
+					stagedRollObserved = true
 				}
 
 				if len(baselineRevs) > 0 {
@@ -2071,10 +2069,10 @@ spec:
 						}
 					}
 					if advanced > 0 && advanced < expectedPods {
-						sawPartial = true
+						stagedRollObserved = true
 					}
 					if countAwaitingWorkloadRevision(g) > 0 {
-						sawPartial = true
+						stagedRollObserved = true
 					}
 				}
 
@@ -2091,7 +2089,7 @@ spec:
 
 			}).Should(Succeed())
 
-			Expect(sawPartial).To(BeTrue(), "expected to observe a partially rolled state")
+			Expect(stagedRollObserved).To(BeTrue(), "expected to observe a partially rolled state")
 			Expect(maxConcurrentRestarts).To(BeNumerically("<=", 1),
 				"expected at most one concurrent pod restart, saw %d", maxConcurrentRestarts)
 		}
