@@ -2162,7 +2162,7 @@ spec:
 			By("patching exporter args to trigger staged rolling update of the exporter")
 			cmd := exec.Command("kubectl", "patch", "valkeycluster", clusterName,
 				"--type=merge", "-p", `{"spec":{"exporter":{"args":["--include-system-metrics"]}}}`)
-			_, err = utils.Run(cmd)
+			_, err := utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
 			assertStagedRoll(baselineUIDs, expectedPods, nil, func(g Gomega) int {
