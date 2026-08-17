@@ -122,8 +122,10 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 			Spec: valkeyiov1alpha1.ValkeyClusterSpec{
 				Image:  image,
 				Config: cfg,
-				TLS: &valkeyiov1alpha1.TLSConfig{
-					Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "valkey-tls"},
+				Networking: &valkeyiov1alpha1.NetworkingSpec{
+					TLS: &valkeyiov1alpha1.TLSConfig{
+						Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "valkey-tls"},
+					},
 				},
 			},
 		}
@@ -207,6 +209,17 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		warnings := versionGateConfigWarnings(cluster)
 		Expect(warnings).To(HaveLen(1))
 		Expect(warnings[0].message).To(ContainSubstring("no version could be detected from spec.image \"valkey/valkey:latest\""))
+	})
+
+	It("versionGateConfigWarnings names the default image when spec.image is empty", func() {
+		cluster := newTLSCluster("", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		})
+		warnings := versionGateConfigWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0].message).To(ContainSubstring("default image"))
+		Expect(warnings[0].message).To(ContainSubstring(DefaultImage))
+		Expect(warnings[0].message).NotTo(ContainSubstring("spec.image"))
 	})
 
 	It("versionGateConfigWarnings stays silent for a gated directive the user never set", func() {

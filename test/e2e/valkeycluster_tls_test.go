@@ -338,9 +338,10 @@ spec:
   image: %s
   shards: 1
   replicas: 1
-  tls:
-    certificate:
-      secretName: %s
+  networking:
+    tls:
+      certificate:
+        secretName: %s
   config:
     tls-auto-reload-interval: "3600"
 `, gatedClusterName, preGateImage, gatedSecretName)
