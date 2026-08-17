@@ -145,7 +145,7 @@ An explicit value is honoured as-is, even if it is below the recommended minimum
 
 ### Version-gated config
 
-Some user-set `spec.config` directives are only valid on newer Valkey releases. When the operator cannot determine the image version, or the detected version does not support a directive, it drops that directive from the rendered `valkey.conf` and sets a `ConfigurationWarning` condition with reason `UnsupportedConfigDirective`.
+Some user-set `spec.config` directives are only valid on newer Valkey releases. When the operator cannot determine the image version (for example `latest` or a digest-pinned image), or the detected version does not support a directive, it drops that directive from the rendered `valkey.conf` and sets a `ConfigurationWarning` condition with reason `UnsupportedConfigDirective`.
 
 If more than one configuration warning is active at the same time, the operator combines them into a single `ConfigurationWarning` condition with reason `MultipleConfigurationWarnings`.
 
@@ -455,3 +455,4 @@ graph TD
 `ValkeyNode` is an internal CRD — do not create or modify ValkeyNodes directly. All configuration goes through `ValkeyCluster`. See [ValkeyNode design](./valkeynode-design.md) for why this abstraction exists.
 
 For status conditions and events, see [status-conditions.md](./status-conditions.md).
+
