@@ -341,8 +341,9 @@ spec:
   replicas: 1
   networking:
     tls:
-      certificate:
-        secretName: %s
+      certificates:
+        server:
+          secretName: %s
   config:
     tls-auto-reload-interval: "3600"
 `, gatedClusterName, preGateImage, gatedSecretName)

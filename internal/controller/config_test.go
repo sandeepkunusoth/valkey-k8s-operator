@@ -122,8 +122,10 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 				Image:  image,
 				Config: cfg,
 				Networking: &valkeyiov1alpha1.NetworkingSpec{
-					TLS: &valkeyiov1alpha1.TLSConfig{
-						Certificate: valkeyiov1alpha1.CertificateRef{SecretName: "valkey-tls"},
+					TLS: &valkeyiov1alpha1.TLSSpec{
+						Certificates: valkeyiov1alpha1.TLSCertificates{
+							Server: valkeyiov1alpha1.CertificateSource{SecretName: "valkey-tls"},
+						},
 					},
 				},
 			},
@@ -178,7 +180,7 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 			"tls-auto-reload-interval": "3600",
 			"appendonly":               "yes",
 		})
-		Expect(gatedUserKeysToSuppress(cluster)).To(Equal(map[string]struct{}{
+		Expect(gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)).To(Equal(map[string]struct{}{
 			"tls-auto-reload-interval": {},
 		}))
 	})
@@ -187,14 +189,14 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		cluster := newTLSCluster("valkey/valkey:latest", map[string]string{
 			"tls-auto-reload-interval": "3600",
 		})
-		Expect(gatedUserKeysToSuppress(cluster)).To(Equal(map[string]struct{}{
+		Expect(gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)).To(Equal(map[string]struct{}{
 			"tls-auto-reload-interval": {},
 		}))
 	})
 
 	It("returns no suppressed keys when no user config is set", func() {
 		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
-		Expect(gatedUserKeysToSuppress(cluster)).To(BeEmpty())
+		Expect(gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)).To(BeEmpty())
 	})
 
 	It("versionGateConfigWarnings names the directive, its required version, and the detected version", func() {

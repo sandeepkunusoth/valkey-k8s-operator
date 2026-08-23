@@ -156,7 +156,7 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		_ = r.updateStatus(ctx, cluster, nil)
 		return ctrl.Result{}, err
 	}
-  configWarnings := make([]configWarning, 0, 2)
+	configWarnings := make([]configWarning, 0, 2)
 	// Surface a ConfigurationWarning condition when an explicit
 	// terminationGracePeriodSeconds is too short for the graceful failover on
 	// SIGTERM to finish before SIGKILL. The value is honoured; the operator does
