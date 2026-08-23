@@ -68,7 +68,7 @@ func GetServerConfigMapName(clusterName string) string {
 // cluster and standalone ValkeyNode config paths.
 //
 //nolint:goconst
-func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.TLSConfig) map[string]string {
+func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec) map[string]string {
 	config := map[string]string{}
 
 	if includeACL {
@@ -112,11 +112,13 @@ func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
 	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS))
 }
 
-// Return a base config of parameters that users shouldn't be able to override
+// Return a base config of parameters that users shouldn't be able to override.
+// Parent-agnostic: takes the TLS config directly so both the ValkeyCluster
+// controller and the ValkeyNode pod-template builders render identical bytes.
 //
 //nolint:goconst
-func getBaseConfig(cluster *valkeyiov1alpha1.ValkeyCluster) map[string]string {
-	baseConfig := buildManagedConfig(true, cluster.GetTLS())
+func getBaseConfig(tls *valkeyiov1alpha1.NodeTLSSpec) map[string]string {
+	baseConfig := buildManagedConfig(true, tls)
 	maps.Copy(baseConfig, map[string]string{
 		"cluster-enabled":                 "yes",
 		"protected-mode":                  "no",
@@ -204,25 +206,18 @@ func gatedUserKeysToSuppress(cluster *valkeyiov1alpha1.ValkeyCluster) map[string
 	return skipKeys
 }
 
-// renderServerConfig renders the full valkey.conf. User-provided config is
-// written first and base config last, so users cannot override key base
-// directives (Valkey uses the last value in the file). Any user keys in
-// excludeUserKeys are omitted (used to compute the roll hash, which must ignore
-// live-settable keys).
-func renderServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster, excludeUserKeys map[string]struct{}) string {
-	baseConfig := getBaseConfig(cluster)
-	userConfig := cluster.Spec.Config
-	skipKeys := gatedUserKeysToSuppress(cluster)
-
+// renderServerConfig renders the full valkey.conf from the given user and base
+// config maps. User-provided config is written first and base config last, so
+// users cannot override key base directives (Valkey uses the last value in the
+// file). Any user keys in excludeUserKeys are omitted (used to compute the roll
+// hash, which must ignore live-settable keys).
+func renderServerConfig(userConfig, baseConfig map[string]string, excludeUserKeys map[string]struct{}) string {
 	var configBuilder strings.Builder
 	configBuilder.Grow((len(baseConfig) + len(userConfig)) * averageParameterLength)
 
 	includedKeys := make([]string, 0, len(userConfig))
 	for _, param := range slices.Sorted(maps.Keys(userConfig)) {
 		if _, skip := excludeUserKeys[param]; skip {
-			continue
-		}
-		if _, skip := skipKeys[param]; skip {
 			continue
 		}
 		includedKeys = append(includedKeys, param)
@@ -243,23 +238,18 @@ func renderServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster, excludeUserKeys
 
 // buildServerConfig renders the full config written to the shared ConfigMap.
 func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
-	return renderServerConfig(cluster, nil)
+	return renderServerConfig(cluster.Spec.Config, getBaseConfig(nodeTLSFromCluster(cluster.GetTLS())), nil)
 }
 
-// buildRollServerConfig renders the config used for the rolling-update hash:
-// the full config minus the live-settable keys, so a change confined to those
-// keys does not change the hash and does not roll the pod.
-func buildRollServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
-	return renderServerConfig(cluster, liveConfigAllowlist)
-}
-
-// serverConfigRollHash is the hash stamped into each node's ServerConfigHash to
-// drive pod rolls. It ignores live-settable keys. Script changes (readiness /
-// liveness probes) are not included — consistent with the pre-existing
-// behaviour where scripts were tracked by a separate annotation and did not
-// trigger pod rolls.
-func serverConfigRollHash(cluster *valkeyiov1alpha1.ValkeyCluster) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(buildRollServerConfig(cluster))))
+// nodeServerConfigRollHash derives the config roll hash from the node spec:
+// the rendered server config minus live-settable keys. Parents copy Config and
+// TLS verbatim onto the node spec, so this hash is byte-identical to the hash
+// the ValkeyCluster controller computes from its own spec — a hard requirement,
+// since a divergence would change every pod template on operator upgrade and
+// roll every pod (see config_rollhash_test.go).
+func nodeServerConfigRollHash(node *valkeyiov1alpha1.ValkeyNode) string {
+	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS), liveConfigAllowlist)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(rendered)))
 }
 
 // Create or update a default valkey.conf
