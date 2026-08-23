@@ -342,8 +342,8 @@ spec:
   networking:
     tls:
       certificates:
-		server:
-			secretName: %s
+        server:
+          secretName: %s
   config:
     tls-auto-reload-interval: "3600"
 `, gatedClusterName, preGateImage, gatedSecretName)
