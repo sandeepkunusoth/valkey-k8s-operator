@@ -351,11 +351,12 @@ If a pod cannot be placed in its pinned zone — no capacity, a `nodeSelector`/`
 ```yaml
 networking:
   tls:
-    certificate:
-      secretName: valkey-tls
+    certificates:
+      server:
+        secretName: valkey-tls
 ```
 
-`networking.tls` enables TLS for all cluster communication. When set, `certificate.secretName` is required. The Secret must contain:
+`networking.tls` enables TLS for all cluster communication. When set, `certificates.server.secretName` is required. The Secret must contain:
 
 | Key | Description |
 |---|---|
@@ -363,9 +364,7 @@ networking:
 | `tls.crt` | Server certificate (or chain) |
 | `tls.key` | Private key for the certificate |
 
-> **Breaking (alpha):** top-level `spec.tls` is removed in favour of `spec.networking.tls`.
->
-> **Upgrade order:** move every ValkeyCluster to `spec.networking.tls` **before** rolling the new CRD. If you upgrade with only top-level `spec.tls` still set, the API server drops the unknown field and the cluster comes back up **with TLS off** (plaintext). That is not a silent field rename; migrate first, then CRD/operator.
+`certificates` is a set of named slots. `server` is the only one today; the trust-source override, the outbound peer identity and the control-plane identity land as sibling slots in later phases of [#360](https://github.com/valkey-io/valkey-operator/issues/360).
 
 ### Users
 
@@ -396,7 +395,7 @@ users:
 - `channels` — pub/sub channel patterns
 - `permissions` — raw ACL string appended after any generated rules
 
-ACL changes are applied to running nodes with `ACL LOAD` (no pod restart), the same way live-settable config is applied without rolling pods. Each node reports an [`ACLApplied`](status-conditions.md#aclapplied) condition once the change is live on the server.
+ACL changes are applied to running nodes with `ACL LOAD` (no pod restart), the same way live-settable config is applied without rolling pods. Each node reports an [`ACLApplied`](status-conditions.md#aclapplied) condition once the change is live on the server. To confirm a node loaded the current revision, including permission-only edits, the operator appends a disabled bookkeeping user `_operator_acl_revision` whose password is a hash of the managed ACL. It cannot authenticate and is expected to appear in `ACL LIST`.
 
 > **Upgrade note:** Live application relies on the operator's `_operator` user holding the `acl|load`, `acl|getuser`, and `acl|users` commands, which older operator versions did not grant. Upgrading onto this version rewrites the pod template (it drops a now-unused annotation), so every existing cluster rolls once and picks up the new grants on restart, after which ACL changes apply live. The exception is a cluster old enough to predate that annotation entirely: it gets no automatic roll, so it needs a one-time manual pod restart after the upgrade before live ACL applies.
 
