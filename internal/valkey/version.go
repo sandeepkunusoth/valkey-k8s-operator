@@ -17,21 +17,31 @@ limitations under the License.
 package valkey
 
 import (
+	"regexp"
 	"strings"
 
 	semver "github.com/Masterminds/semver/v3"
 )
 
+// imageVersionRE extracts a Valkey release from a Docker tag: semver plus an
+// optional -rcN prerelease. Distro suffixes such as -bookworm or -alpine3.26
+// are not part of the match.
+var imageVersionRE = regexp.MustCompile(`(?i)^v?(\d+\.\d+(?:\.\d+)?(?:-rc\d+)?)`)
+
 // VersionFromImage parses the Valkey version from a container image reference's
 // tag. It returns false when the version cannot be determined, for example for
-// floating tags such as "latest" or digest-only references.
+// floating tags such as "latest" or digest-only references without a tag.
 func VersionFromImage(image string) (*semver.Version, bool) {
 	tag, ok := imageTag(image)
 	if !ok {
 		return nil, false
 	}
 
-	parsed, err := semver.NewVersion(tag)
+	match := imageVersionRE.FindStringSubmatch(tag)
+	if len(match) < 2 {
+		return nil, false
+	}
+	parsed, err := semver.NewVersion(match[1])
 	if err != nil {
 		return nil, false
 	}
