@@ -35,7 +35,7 @@ func TestVersionFromImage(t *testing.T) {
 		{name: "major.minor only", image: "valkey/valkey:9.1", want: "9.1.0", wantOK: true},
 		{name: "distro suffix bookworm", image: "valkey/valkey:9.1.0-bookworm", want: "9.1.0", wantOK: true},
 		{name: "alpine suffix", image: "valkey/valkey:9.1.2-alpine", want: "9.1.2", wantOK: true},
-		{name: "prerelease tag", image: "valkey/valkey:9.1.0-rc1", want: "9.1.0", wantOK: true},
+		{name: "prerelease tag", image: "valkey/valkey:9.1.0-rc1", want: "9.1.0-rc1", wantOK: true},
 		{name: "v-prefixed tag", image: "valkey/valkey:v9.1.0", want: "9.1.0", wantOK: true},
 		{name: "tag plus digest", image: "valkey/valkey:9.1.1@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf", want: "9.1.1", wantOK: true},
 		{name: "registry with port", image: "myregistry:5000/valkey/valkey:9.1.0", want: "9.1.0", wantOK: true},
@@ -68,6 +68,7 @@ func TestMeetsMinVersion(t *testing.T) {
 	}{
 		{name: "above minimum", image: "valkey/valkey:9.1.1", want: true},
 		{name: "equal to minimum", image: "valkey/valkey:9.1.0", want: true},
+		{name: "prerelease below minimum", image: "valkey/valkey:9.1.0-rc1", want: false},
 		{name: "distro suffix meets gate", image: "valkey/valkey:9.1.0-alpine", want: true},
 		{name: "pinned by digest only", image: "valkey/valkey@sha256:abcd1234", want: false},
 		{name: "tag plus digest meets gate", image: "valkey/valkey:9.1.1@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf", want: true},
