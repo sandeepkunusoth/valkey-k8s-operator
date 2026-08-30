@@ -357,6 +357,16 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cr, err := utils.GetValkeyClusterStatus(gatedClusterName)
+
+				var warned bool
+				for _, c := range cr.Status.Conditions {
+					if c.Type == valkeyiov1alpha1.ConditionConfigurationWarning &&
+						c.Reason == valkeyiov1alpha1.ReasonUnsupportedConfigDirective {
+						warned = true
+					}
+				}
+				g.Expect(warned).To(BeTrue(), "expected ConfigurationWarning with reason UnsupportedConfigDirective")
+
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 			}).Should(Succeed())
@@ -368,9 +378,11 @@ spec:
 			os.RemoveAll(gatedTmpDir)
 		})
 
-		It("surfaces a ConfigurationWarning with the unsupported directive details", func() {
+		It("reaches Ready with a a ConfigurationWarning while the unsupported directive remains in spec.config", func() {
 			cr, err := utils.GetValkeyClusterStatus(gatedClusterName)
 			Expect(err).NotTo(HaveOccurred())
+			Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
+			Expect(cr.Spec.Config).To(HaveKeyWithValue("tls-auto-reload-interval", "3600"))
 
 			var hit bool
 			for _, c := range cr.Status.Conditions {
@@ -411,11 +423,18 @@ spec:
 			Eventually(func(g Gomega) {
 				cr, err := utils.GetValkeyClusterStatus(gatedClusterName)
 				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 
+				var warned bool
 				for _, c := range cr.Status.Conditions {
 					g.Expect(c.Type).NotTo(Equal(valkeyiov1alpha1.ConditionConfigurationWarning),
 						"the image is still pre-9.1, but a directive the user never set must not be reported as unsupported")
+					if c.Type == valkeyiov1alpha1.ConditionConfigurationWarning &&
+						c.Reason == valkeyiov1alpha1.ReasonUnsupportedConfigDirective {
+						warned = true
+					}
 				}
+				g.Expect(warned).To(BeFalse(), "expected no ConfigurationWarning with reason UnsupportedConfigDirective after removing the directive from spec.config")
 			}).Should(Succeed())
 		})
 	})

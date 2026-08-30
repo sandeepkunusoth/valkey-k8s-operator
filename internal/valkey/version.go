@@ -46,7 +46,7 @@ func VersionFromImage(image string) (*semver.Version, bool) {
 		return nil, false
 	}
 
-	return semver.New(parsed.Major(), parsed.Minor(), parsed.Patch(), "", ""), true
+	return parsed, true
 }
 
 // imageTag extracts the tag from a container image reference.

@@ -51,7 +51,7 @@ const (
 // versionGatedConfig maps user-facing config directives to the minimum Valkey
 // version that understands them.
 var versionGatedConfig = map[string]*semver.Version{
-	"tls-auto-reload-interval": semver.MustParse("9.1.0"),
+	"tls-auto-reload-interval": semver.MustParse("9.1.0-rc1"),
 }
 
 //go:embed scripts/*
