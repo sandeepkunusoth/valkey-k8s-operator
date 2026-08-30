@@ -447,8 +447,11 @@ type ExporterSpec struct {
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// Enable or disable the exporter sidecar container
-	Enabled bool `json:"enabled,omitempty"`
+	// Enable or disable the exporter sidecar container. Unset means enabled
+	// on a ValkeyCluster; a ValkeyNode runs the sidecar only on an explicit
+	// true, which the cluster controller propagates when enabled.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// Override the SecurityContext applied to the exporter sidecar container.
 	// +optional
@@ -457,6 +460,13 @@ type ExporterSpec struct {
 	// Additional cmdline arguments passed to exporter sidecar container.
 	// +optional
 	Args []string `json:"args,omitempty"`
+}
+
+// ExporterEnabled resolves the cluster-level default: a nil
+// spec.exporter.enabled means enabled, so overriding any other exporter
+// field keeps the sidecar.
+func (s ValkeyClusterSpec) ExporterEnabled() bool {
+	return s.Exporter.Enabled == nil || *s.Exporter.Enabled
 }
 
 // ValkeyClusterStatus defines the observed state of ValkeyCluster.
@@ -512,32 +522,33 @@ const (
 
 const (
 	// Common reasons for conditions
-	ReasonInitializing                  = "Initializing"
-	ReasonReconciling                   = "Reconciling"
-	ReasonClusterHealthy                = "ClusterHealthy"
-	ReasonServiceError                  = "ServiceError"
-	ReasonConfigMapError                = "ConfigMapError"
-	ReasonValkeyNodeError               = "ValkeyNodeError"
-	ReasonValkeyNodeListError           = "ValkeyNodeListError"
-	ReasonAddingNodes                   = "AddingNodes"
-	ReasonNodeAddFailed                 = "NodeAddFailed"
-	ReasonMissingShards                 = "MissingShards"
-	ReasonMissingReplicas               = "MissingReplicas"
-	ReasonReconcileComplete             = "ReconcileComplete"
-	ReasonTopologyComplete              = "TopologyComplete"
-	ReasonAllSlotsAssigned              = "AllSlotsAssigned"
-	ReasonSlotsUnassigned               = "SlotsUnassigned"
-	ReasonGracePeriodTooShort           = "GracePeriodTooShort"
-	ReasonPrimaryLost                   = "PrimaryLost"
-	ReasonNoSlots                       = "NoSlotsAvailable"
-	ReasonRebalancingSlots              = "RebalancingSlots"
-	ReasonRebalanceFailed               = "RebalanceFailed"
-	ReasonUsersAclError                 = "UsersACLError"
-	ReasonUpdatingNodes                 = "UpdatingNodes"
-	ReasonSystemUsersAclError           = "SystemUsersACLError"
-	ReasonPodDisruptionBudgetError      = "PodDisruptionBudgetError"
-	ReasonPodUnschedulable              = "PodUnschedulable"
-	ReasonUnsupportedConfigDirective    = "UnsupportedConfigDirective"
+	ReasonInitializing             = "Initializing"
+	ReasonReconciling              = "Reconciling"
+	ReasonClusterHealthy           = "ClusterHealthy"
+	ReasonServiceError             = "ServiceError"
+	ReasonConfigMapError           = "ConfigMapError"
+	ReasonValkeyNodeError          = "ValkeyNodeError"
+	ReasonValkeyNodeListError      = "ValkeyNodeListError"
+	ReasonAddingNodes              = "AddingNodes"
+	ReasonNodeAddFailed            = "NodeAddFailed"
+	ReasonMissingShards            = "MissingShards"
+	ReasonMissingReplicas          = "MissingReplicas"
+	ReasonReconcileComplete        = "ReconcileComplete"
+	ReasonTopologyComplete         = "TopologyComplete"
+	ReasonAllSlotsAssigned         = "AllSlotsAssigned"
+	ReasonSlotsUnassigned          = "SlotsUnassigned"
+	ReasonGracePeriodTooShort      = "GracePeriodTooShort"
+	ReasonPrimaryLost              = "PrimaryLost"
+	ReasonNoSlots                  = "NoSlotsAvailable"
+	ReasonRebalancingSlots         = "RebalancingSlots"
+	ReasonRebalanceFailed          = "RebalanceFailed"
+	ReasonACLApplyFailed           = "ACLApplyFailed"
+	ReasonUsersAclError            = "UsersACLError"
+	ReasonUpdatingNodes            = "UpdatingNodes"
+	ReasonSystemUsersAclError      = "SystemUsersACLError"
+	ReasonPodDisruptionBudgetError = "PodDisruptionBudgetError"
+	ReasonPodUnschedulable         = "PodUnschedulable"
+  ReasonUnsupportedConfigDirective    = "UnsupportedConfigDirective"
 	ReasonMultipleConfigurationWarnings = "MultipleConfigurationWarnings"
 )
 
