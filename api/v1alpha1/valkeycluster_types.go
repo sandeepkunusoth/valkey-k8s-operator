@@ -387,6 +387,13 @@ type ValkeyClusterSpec struct {
 	// When set, this overrides the default PodSecurityContext.
 	// +optional
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+
+	// ServiceAccountName specifies the name of the ServiceAccount to use for
+	// ValkeyCluster pods. If unset, the namespace's default ServiceAccount is used.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 // NetworkingSpec groups connectivity configuration for the cluster.

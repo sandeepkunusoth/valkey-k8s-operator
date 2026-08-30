@@ -63,6 +63,15 @@ containers:
 
 `containers` patches the pod's container list using strategic merge patch. Containers named `server` or `metrics-exporter` are merged by name; anything else is appended as a sidecar.
 
+### Service account
+
+```yaml
+serviceAccountName: valkey-sa
+```
+
+`serviceAccountName` sets the Kubernetes ServiceAccount used by each ValkeyNode
+pod. If unset, the pod uses the namespace's default ServiceAccount.
+
 ### Metrics
 
 ```yaml
@@ -436,3 +445,4 @@ graph TD
 `ValkeyNode` is an internal CRD — do not create or modify ValkeyNodes directly. All configuration goes through `ValkeyCluster`. See [ValkeyNode design](./valkeynode-design.md) for why this abstraction exists.
 
 For status conditions and events, see [status-conditions.md](./status-conditions.md).
+

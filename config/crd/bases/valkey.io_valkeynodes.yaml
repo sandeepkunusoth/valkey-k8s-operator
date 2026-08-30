@@ -3141,6 +3141,13 @@ spec:
                   ServerConfigMapName specifies the name of the ConfigMap that contains the
                   scripts, and Valkey config for the ValkeyNode.
                 type: string
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the name of the Kubernetes ServiceAccount used by
+                  the ValkeyNode pod.
+                maxLength: 253
+                minLength: 1
+                type: string
               terminationGracePeriodSeconds:
                 description: |-
                   TerminationGracePeriodSeconds is the pod termination grace period, set by
