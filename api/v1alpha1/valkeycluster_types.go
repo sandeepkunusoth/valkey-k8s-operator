@@ -552,7 +552,6 @@ const (
 	ReasonMultipleConfigurationWarnings = "MultipleConfigurationWarnings"
 )
 
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
