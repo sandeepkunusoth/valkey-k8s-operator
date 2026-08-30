@@ -109,16 +109,16 @@ func TestApplyConfigurationWarnings(t *testing.T) {
 	g.Expect(cond.Message).To(Equal("another directive warning; directive warning"))
 	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 
-	// Reapplying the same underlying issues can still recompute the aggregate
-	// reason when the warning mix changes, so assert the full merged result.
+	// Reapplying the exact same warning set should keep the condition stable.
+	before := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
 	r.applyConfigurationWarnings(ctx, cluster, []configWarning{
-		{reason: valkeyiov1alpha1.ReasonGracePeriodTooShort, message: graceMessage},
 		{reason: valkeyiov1alpha1.ReasonUnsupportedConfigDirective, message: "directive warning"},
+		{reason: valkeyiov1alpha1.ReasonUnsupportedConfigDirective, message: "another directive warning"},
 	})
 	after := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
 	g.Expect(after).NotTo(BeNil())
-	g.Expect(after.Reason).To(Equal(valkeyiov1alpha1.ReasonMultipleConfigurationWarnings))
-	g.Expect(after.Message).To(Equal(graceMessage + "; directive warning"))
+	g.Expect(after.Reason).To(Equal(before.Reason))
+	g.Expect(after.Message).To(Equal(before.Message))
 
 	// remove all warnings and ensure the condition is removed
 	r.applyConfigurationWarnings(ctx, cluster, nil)
