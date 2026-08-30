@@ -112,8 +112,8 @@ func TestApplyConfigurationWarnings(t *testing.T) {
 	// Reapplying the exact same warning set should keep the condition stable.
 	before := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
 	r.applyConfigurationWarnings(ctx, cluster, []configWarning{
-		{reason: valkeyiov1alpha1.ReasonGracePeriodTooShort, message: graceMessage},
 		{reason: valkeyiov1alpha1.ReasonUnsupportedConfigDirective, message: "directive warning"},
+		{reason: valkeyiov1alpha1.ReasonUnsupportedConfigDirective, message: "another directive warning"},
 	})
 	after := meta.FindStatusCondition(cluster.Status.Conditions, valkeyiov1alpha1.ConditionConfigurationWarning)
 	g.Expect(after).NotTo(BeNil())
