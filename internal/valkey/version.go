@@ -24,7 +24,7 @@ import (
 
 // VersionFromImage parses the Valkey version from a container image reference's
 // tag. It returns false when the version cannot be determined, for example for
-// floating tags such as "latest" or digest-pinned references.
+// floating tags such as "latest" or digest-only references.
 func VersionFromImage(image string) (*semver.Version, bool) {
 	tag, ok := imageTag(image)
 	if !ok {
@@ -41,8 +41,12 @@ func VersionFromImage(image string) (*semver.Version, bool) {
 
 // imageTag extracts the tag from a container image reference.
 func imageTag(image string) (string, bool) {
-	if image == "" || strings.Contains(image, "@") {
+	if image == "" {
 		return "", false
+	}
+
+	if i := strings.IndexByte(image, '@'); i >= 0 {
+		image = image[:i]
 	}
 
 	idx := strings.LastIndex(image, ":")
