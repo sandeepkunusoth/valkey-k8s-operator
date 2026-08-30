@@ -36,6 +36,7 @@ func TestVersionFromImage(t *testing.T) {
 		{name: "distro suffix bookworm", image: "valkey/valkey:9.1.0-bookworm", want: "9.1.0", wantOK: true},
 		{name: "alpine suffix", image: "valkey/valkey:9.1.2-alpine", want: "9.1.2", wantOK: true},
 		{name: "v-prefixed tag", image: "valkey/valkey:v9.1.0", want: "9.1.0", wantOK: true},
+		{name: "tag plus digest", image: "valkey/valkey:9.1.1@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf", want: "9.1.1", wantOK: true},
 		{name: "registry with port", image: "myregistry:5000/valkey/valkey:9.1.0", want: "9.1.0", wantOK: true},
 		{name: "floating latest tag", image: "valkey/valkey:latest", wantOK: false},
 		{name: "no tag", image: "valkey/valkey", wantOK: false},
