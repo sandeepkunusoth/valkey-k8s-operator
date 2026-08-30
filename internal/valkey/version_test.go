@@ -60,7 +60,7 @@ func TestVersionFromImage(t *testing.T) {
 }
 
 func TestMeetsMinVersion(t *testing.T) {
-	min := semver.MustParse("9.1.0")
+	min := semver.MustParse("9.1.0-rc1")
 	tests := []struct {
 		name  string
 		image string
@@ -68,7 +68,7 @@ func TestMeetsMinVersion(t *testing.T) {
 	}{
 		{name: "above minimum", image: "valkey/valkey:9.1.1", want: true},
 		{name: "equal to minimum", image: "valkey/valkey:9.1.0", want: true},
-		{name: "prerelease below minimum", image: "valkey/valkey:9.1.0-rc1", want: false},
+		{name: "prerelease meets minimum", image: "valkey/valkey:9.1.0-rc1", want: true},
 		{name: "distro suffix meets gate", image: "valkey/valkey:9.1.0-alpine", want: true},
 		{name: "pinned by digest only", image: "valkey/valkey@sha256:abcd1234", want: false},
 		{name: "tag plus digest meets gate", image: "valkey/valkey:9.1.1@sha256:70739f85ad2ee01a726a965584a0f94895f01b0c60b3cc8b0aeef11eaa6888cf", want: true},
