@@ -378,7 +378,7 @@ spec:
 			os.RemoveAll(gatedTmpDir)
 		})
 
-		It("surfaces a ConfigurationWarning with the unsupported directive details", func() {
+		It("reaches Ready with a a ConfigurationWarning while the unsupported directive remains in spec.config", func() {
 			cr, err := utils.GetValkeyClusterStatus(gatedClusterName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
