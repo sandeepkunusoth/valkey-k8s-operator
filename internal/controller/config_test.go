@@ -145,13 +145,13 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		})
 		Expect(buildServerConfig(cluster)).To(ContainSubstring("tls-auto-reload-interval 3600"))
 	})
-  
-  It("keeps a user-set directive when the version is 9.1.0-rc2", func() {
-    cluster := newTLSCluster("valkey/valkey:9.1.0-rc2", map[string]string{
-      "tls-auto-reload-interval": "3600",
-    })
+
+	It("keeps a user-set directive when the version is 9.1.0-rc2", func() {
+		cluster := newTLSCluster("valkey/valkey:9.1.0-rc2", map[string]string{
+			"tls-auto-reload-interval": "3600",
+		})
 		Expect(buildServerConfig(cluster)).To(ContainSubstring("tls-auto-reload-interval 3600"))
-  })
+	})
 
 	It("skips the directive when the version is below 9.1 and the key is unset", func() {
 		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
@@ -268,7 +268,7 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(warnings).To(HaveLen(2))
 		Expect(warnings[0].message).To(ContainSubstring("alpha-directive"))
 		Expect(warnings[1].message).To(ContainSubstring("beta-directive"))
-    })
+	})
 })
 
 var _ = Describe("Discovery managed config", func() {

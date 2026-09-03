@@ -628,7 +628,7 @@ const (
 	ReasonMultipleConfigurationWarnings = "MultipleConfigurationWarnings"
 	// ReasonTLSWithIPAnnounce is used with ConditionTLSEndpointWarning when TLS
 	// is enabled and preferred endpoint type is IP (default or explicit).
-	ReasonTLSWithIPAnnounce             = "TLSWithIPAnnounce"
+	ReasonTLSWithIPAnnounce = "TLSWithIPAnnounce"
 )
 
 // +kubebuilder:object:root=true
