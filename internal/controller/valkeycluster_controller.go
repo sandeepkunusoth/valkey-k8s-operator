@@ -173,7 +173,7 @@ func (r *ValkeyClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	configWarnings = append(configWarnings, versionGateConfigWarnings(cluster)...)
 	r.applyConfigurationWarnings(ctx, cluster, configWarnings)
-  
+
 	// Soft guard: TLS with IP announce (including default IP). Non-blocking.
 	if cluster.GetTLS() != nil && !cluster.PrefersHostnameAnnounce() {
 		msg := "networking.tls is set with preferredEndpointType IP (default when discovery is omitted); clients that re-dial announced pod IPs after CLUSTER SLOTS often fail certificate name checks. Prefer networking.discovery.preferredEndpointType Hostname and cert SANs for pod FQDNs under the headless Service"

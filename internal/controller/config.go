@@ -254,7 +254,6 @@ func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
 func nodeServerConfigRollHash(node *valkeyiov1alpha1.ValkeyNode) string {
 	excludedKeys := maps.Clone(liveConfigAllowlist)
 	maps.Copy(excludedKeys, gatedUserKeysToSuppress(node.Spec.Image, node.Spec.Config))
-	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS), excludedKeys)
 	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS, node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname), excludedKeys)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(rendered)))
 }
