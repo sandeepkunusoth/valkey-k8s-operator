@@ -29,7 +29,7 @@ config:
   maxmemory-policy: noeviction
 ```
 
-Use `config` to pass [Valkey configuration](https://valkey.io/topics/valkey.conf/) to all nodes in the cluster.
+Use `config` to pass [Valkey configuration](https://valkey.io/topics/valkey.conf/) to all nodes in the cluster. Some directives require a newer Valkey release; see [Version-gated config](#version-gated-config)
 
 Listed below are configurations can be applied live without rolling pods. We are adopting configs that can be applied live on a case-by-case basis. For any requests please [raise an issue](https://github.com/valkey-io/valkey-operator/issues/new).
 
@@ -404,7 +404,7 @@ Changing `serviceName` on an existing StatefulSet is immutable. The operator del
 
 `serverName` is the hostname the operator verifies when it dials a node by pod IP. When unset, it uses `valkey-<name>.<namespace>.svc.<clusterDomain>` (default `cluster.local`). The cluster writes that resolved name onto each `ValkeyNode`; the node client and the metrics exporter (`REDIS_EXPORTER_TLS_SERVER_NAME`) use it as-is. The exporter still dials `localhost`. This does not change what nodes announce in `CLUSTER SLOTS`.
 
-Set `tls-auto-reload-interval` in `spec.config` to have automatic reload of certificates (for example certificates auto-renewed from cert-manager) without a restart. It requires Valkey `9.1.0` or newer; on unsupported or indeterminate images the directive is ignored and a `ConfigurationWarning` condition is emitted.
+Set `tls-auto-reload-interval` in `spec.config` to have automatic reload of certificates (for example certificates auto-renewed from cert-manager) without a restart. It requires Valkey `9.1.0` or newer; on unsupported or indeterminate images the directive is ignored and a `ConfigurationWarning` condition is emitted. See [Version-gated config](#version-gated-config) for rollout ordering when upgrading the image.
 
 ```yaml
 config:
@@ -481,3 +481,4 @@ graph TD
 `ValkeyNode` is an internal CRD — do not create or modify ValkeyNodes directly. All configuration goes through `ValkeyCluster`. See [ValkeyNode design](./valkeynode-design.md) for why this abstraction exists.
 
 For status conditions and events, see [status-conditions.md](./status-conditions.md).
+

@@ -160,6 +160,12 @@ spec:
 					Expect(c.Reason).NotTo(Equal(valkeyiov1alpha1.ReasonUnsupportedConfigDirective))
 				}
 			}
+
+			cmd := exec.Command("kubectl", "get", "configmap", controller.GetServerConfigMapName(valkeyClusterName),
+				"-o", "jsonpath={.data.valkey\\.conf}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("tls-auto-reload-interval 3600"))
 		})
 
 		It("mounts TLS certs into the server container", func() {
@@ -356,6 +362,7 @@ spec:
 
 			Eventually(func(g Gomega) {
 				cr, err := utils.GetValkeyClusterStatus(gatedClusterName)
+				g.Expect(err).NotTo(HaveOccurred())
 
 				var warned bool
 				for _, c := range cr.Status.Conditions {
@@ -365,8 +372,6 @@ spec:
 					}
 				}
 				g.Expect(warned).To(BeTrue(), "expected ConfigurationWarning with reason UnsupportedConfigDirective")
-
-				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 			}).Should(Succeed())
 		})
