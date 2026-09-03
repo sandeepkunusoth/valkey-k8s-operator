@@ -24,6 +24,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 
 	valkeyv1 "github.com/valkey-io/valkey-operator/api/v1alpha1"
 	"github.com/valkey-io/valkey-operator/internal/valkey"
@@ -320,6 +321,18 @@ func countSlots(ranges []valkey.SlotsRange) int {
 // replicas.
 func valkeyNodeName(clusterName string, shardIndex int, nodeIndex int) string {
 	return fmt.Sprintf("%s-%d-%d", clusterName, shardIndex, nodeIndex)
+}
+
+// tlsServerName is the hostname the operator pins on TLS connections to a
+// pod IP. override wins; otherwise the cluster headless Service FQDN under
+// clusterDomain (default cluster.local). The trailing dot from
+// headlessServiceFQDN is stripped so the name is a DNS-1123 subdomain and
+// matches typical certificate SANs.
+func tlsServerName(override, clusterName, namespace, clusterDomain string) string {
+	if override != "" {
+		return override
+	}
+	return strings.TrimSuffix(headlessServiceFQDN(clusterName, namespace, clusterDomain), ".")
 }
 
 // getTLSConfig returns the TLS configuration for a ValkeyCluster.

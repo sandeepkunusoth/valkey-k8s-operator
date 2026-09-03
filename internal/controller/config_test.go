@@ -82,7 +82,7 @@ var _ = Describe("Live config", Label("liveconfig"), func() {
 		rollConfig := renderServerConfig(map[string]string{
 			"maxmemory-policy": "allkeys-lru", // allowlisted
 			"appendonly":       "yes",         // not allowlisted
-		}, getBaseConfig(nil), liveConfigAllowlist)
+		}, getBaseConfig(nil, false), liveConfigAllowlist)
 		Expect(rollConfig).NotTo(ContainSubstring("maxmemory-policy"))
 		Expect(rollConfig).To(ContainSubstring("appendonly"))
 		Expect(rollConfig).To(ContainSubstring("cluster-enabled")) // base retained
@@ -145,6 +145,13 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		})
 		Expect(buildServerConfig(cluster)).To(ContainSubstring("tls-auto-reload-interval 3600"))
 	})
+  
+  It("keeps a user-set directive when the version is 9.1.0-rc2", func() {
+    cluster := newTLSCluster("valkey/valkey:9.1.0-rc2", map[string]string{
+      "tls-auto-reload-interval": "3600",
+    })
+		Expect(buildServerConfig(cluster)).To(ContainSubstring("tls-auto-reload-interval 3600"))
+  })
 
 	It("skips the directive when the version is below 9.1 and the key is unset", func() {
 		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
@@ -261,5 +268,30 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(warnings).To(HaveLen(2))
 		Expect(warnings[0].message).To(ContainSubstring("alpha-directive"))
 		Expect(warnings[1].message).To(ContainSubstring("beta-directive"))
+    })
+})
+
+var _ = Describe("Discovery managed config", func() {
+	It("omits cluster-preferred-endpoint-type for default IP announce", func() {
+		cfg := buildManagedConfig(true, nil, false)
+		Expect(cfg).NotTo(HaveKey("cluster-preferred-endpoint-type"))
+	})
+
+	It("sets cluster-preferred-endpoint-type hostname when Hostname announce is on", func() {
+		cfg := buildManagedConfig(true, nil, true)
+		Expect(cfg["cluster-preferred-endpoint-type"]).To(Equal("hostname"))
+	})
+
+	It("getBaseConfig follows PrefersHostnameAnnounce", func() {
+		cluster := getSampleCluster()
+		tls := nodeTLSFromCluster(cluster)
+		Expect(getBaseConfig(tls, cluster.PrefersHostnameAnnounce())).NotTo(HaveKey("cluster-preferred-endpoint-type"))
+
+		cluster.Spec.Networking = &valkeyiov1alpha1.NetworkingSpec{
+			Discovery: &valkeyiov1alpha1.DiscoverySpec{
+				PreferredEndpointType: valkeyiov1alpha1.PreferredEndpointTypeHostname,
+			},
+		}
+		Expect(getBaseConfig(tls, cluster.PrefersHostnameAnnounce())["cluster-preferred-endpoint-type"]).To(Equal("hostname"))
 	})
 })

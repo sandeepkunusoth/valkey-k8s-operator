@@ -66,7 +66,7 @@ func GetServerConfigMapName(clusterName string) string {
 // cluster and standalone ValkeyNode config paths.
 //
 //nolint:goconst
-func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec) map[string]string {
+func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool) map[string]string {
 	config := map[string]string{}
 
 	if includeACL {
@@ -90,6 +90,10 @@ func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec) map[
 		config["tls-auth-clients"] = "optional" // allow clients to connect without client certificate
 	}
 
+	if hostnameAnnounce {
+		config["cluster-preferred-endpoint-type"] = "hostname"
+	}
+
 	return config
 }
 
@@ -107,7 +111,8 @@ func renderConfig(config map[string]string) string {
 }
 
 func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
-	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS))
+	hostname := node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname
+	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS, hostname))
 }
 
 // Return a base config of parameters that users shouldn't be able to override.
@@ -115,8 +120,8 @@ func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
 // controller and the ValkeyNode pod-template builders render identical bytes.
 //
 //nolint:goconst
-func getBaseConfig(tls *valkeyiov1alpha1.NodeTLSSpec) map[string]string {
-	baseConfig := buildManagedConfig(true, tls)
+func getBaseConfig(tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool) map[string]string {
+	baseConfig := buildManagedConfig(true, tls, hostnameAnnounce)
 	maps.Copy(baseConfig, map[string]string{
 		"cluster-enabled":                 "yes",
 		"protected-mode":                  "no",
@@ -237,7 +242,7 @@ func renderServerConfig(userConfig, baseConfig map[string]string, excludeUserKey
 // buildServerConfig renders the full config written to the shared ConfigMap.
 func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
 	excludeKeys := gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)
-	return renderServerConfig(cluster.Spec.Config, getBaseConfig(nodeTLSFromCluster(cluster.GetTLS())), excludeKeys)
+	return renderServerConfig(cluster.Spec.Config, getBaseConfig(nodeTLSFromCluster(cluster), cluster.PrefersHostnameAnnounce()), excludeKeys)
 }
 
 // nodeServerConfigRollHash derives the config roll hash from the node spec:
@@ -247,9 +252,10 @@ func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
 // since a divergence would change every pod template on operator upgrade and
 // roll every pod (see config_rollhash_test.go).
 func nodeServerConfigRollHash(node *valkeyiov1alpha1.ValkeyNode) string {
-	exclude := maps.Clone(liveConfigAllowlist)
-	maps.Copy(exclude, gatedUserKeysToSuppress(node.Spec.Image, node.Spec.Config))
-	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS), exclude)
+	excludedKeys := maps.Clone(liveConfigAllowlist)
+	maps.Copy(excludedKeys, gatedUserKeysToSuppress(node.Spec.Image, node.Spec.Config))
+	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS), excludedKeys)
+	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS, node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname), excludedKeys)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(rendered)))
 }
 

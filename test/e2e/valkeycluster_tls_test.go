@@ -62,7 +62,6 @@ spec:
   commonName: valkey-%s.default.svc.cluster.local
   dnsNames:
     - valkey-%s.default.svc.cluster.local
-    - localhost
   issuerRef:
     name: selfsigned-issuer
     kind: Issuer
