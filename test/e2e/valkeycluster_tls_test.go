@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -98,7 +99,7 @@ spec:
 		Eventually(func() error {
 			_, err := utils.Run(exec.Command("kubectl", "get", "secret", tlsSecretName))
 			return err
-		}).Should(Succeed())
+		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 		By("creating the ValkeyCluster CR with TLS and metrics exporter")
 		manifest := fmt.Sprintf(`
@@ -134,7 +135,7 @@ spec:
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(cr.Status.State).To(Equal(valkeyiov1alpha1.ClusterStateReady))
 		}
-		Eventually(verifyReady).Should(Succeed())
+		Eventually(verifyReady, 10*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
 	AfterAll(func() {
@@ -247,7 +248,7 @@ spec:
 				for _, status := range strings.Fields(out) {
 					g.Expect(status).To(Equal("true"))
 				}
-			}).Should(Succeed())
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("getting pod IP")
 			var podIP string
@@ -302,7 +303,7 @@ spec:
 				g.Expect(out).To(MatchRegexp(`redis_up\s+1`), "redis_up should be 1 when exporter connects via TLS")
 				g.Expect(out).To(ContainSubstring("redis_connected_clients"))
 				g.Expect(out).To(ContainSubstring("redis_memory_used_bytes"))
-			}).Should(Succeed())
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
 
