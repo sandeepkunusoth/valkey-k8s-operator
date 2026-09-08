@@ -40,6 +40,8 @@ func TestNodeTLSFromCluster(t *testing.T) {
 						Certificates: valkeyv1.TLSCertificates{
 							Server: valkeyv1.CertificateSource{SecretName: "valkey-server-tls"},
 						},
+						AuthClients:     valkeyv1.TLSAuthClientsRequired,
+						AuthClientsUser: valkeyv1.TLSAuthClientsUserCN,
 					},
 				},
 			},
@@ -47,6 +49,8 @@ func TestNodeTLSFromCluster(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, "valkey-server-tls", got.Certificates.Server.SecretName)
 		assert.Equal(t, "valkey-mycluster.default.svc.cluster.local", got.ServerName)
+		assert.Equal(t, valkeyv1.TLSAuthClientsRequired, got.AuthClients)
+		assert.Equal(t, valkeyv1.TLSAuthClientsUserCN, got.AuthClientsUser)
 	})
 
 	t.Run("default serverName uses clusterDomain", func(t *testing.T) {

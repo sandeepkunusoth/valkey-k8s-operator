@@ -581,8 +581,10 @@ func TestBuildValkeyNodeConfigMap_WithManagedConfig(t *testing.T) {
 
 func TestBuildValkeyNodeConfigMap_WithAuthClientsUserURI(t *testing.T) {
 	node := newTestValkeyNode("mynode", "test-ns")
-	node.Spec.TLS = &valkeyv1.TLSConfig{
-		Certificate:     valkeyv1.CertificateRef{SecretName: "tls-secret"},
+	node.Spec.TLS = &valkeyv1.NodeTLSSpec{
+		Certificates: valkeyv1.NodeTLSCertificates{
+			Server: valkeyv1.NodeCertificateRef{SecretName: "tls-secret"},
+		},
 		AuthClients:     valkeyv1.TLSAuthClientsRequired,
 		AuthClientsUser: valkeyv1.TLSAuthClientsUserURI,
 	}

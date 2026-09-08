@@ -503,16 +503,8 @@ func (input TLSAuthClientsUser) AuthClientsUserDirective() (string, bool) {
 	return v, ok
 }
 
-// +kubebuilder:validation:XValidation:rule="!(self.authClients == 'Disabled' && self.authClientsUser != 'Disabled')",message="authClientsUser=CN/URI has no effect when authClients=Disabled (Valkey ignores client certificates)"
-
-// TLSConfig defines the TLS configuration for ValkeyCluster.
-type TLSConfig struct {
-	// Certificate is a reference to a Kubernetes secret that contains the certificate and private key for enabling TLS.
-	// The referenced secret should contain the following:
-=======
-
-
 // TLSSpec defines the TLS configuration for ValkeyCluster.
+// +kubebuilder:validation:XValidation:rule="self.authClients != 'Disabled' || !has(self.authClientsUser) || self.authClientsUser == 'Disabled'",message="authClientsUser=CN/URI requires authClients to be Optional or Required"
 type TLSSpec struct {
 	// ServerName is the hostname used for TLS verification when the operator
 	// connects to a node by pod IP. When unset, the operator uses
@@ -526,8 +518,8 @@ type TLSSpec struct {
 	// Certificates holds the certificate slots used by the cluster.
 	// +kubebuilder:validation:Required
 	Certificates TLSCertificates `json:"certificates"`
-  
-  // AuthClients controls whether clients must authenticate with a TLS
+
+	// AuthClients controls whether clients must authenticate with a TLS
 	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
 	// and unauthenticated clients, and `Disabled` turns client certificate
 	// processing off entirely.

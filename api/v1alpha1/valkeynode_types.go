@@ -172,6 +172,23 @@ type NodeTLSSpec struct {
 	// Certificates holds the certificate slots mounted into the node pod.
 	// +kubebuilder:validation:Required
 	Certificates NodeTLSCertificates `json:"certificates"`
+
+	// AuthClients controls whether clients must authenticate with a TLS
+	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
+	// and unauthenticated clients, and `Disabled` turns client certificate
+	// processing off entirely.
+	// Defaults to `Optional`.
+	// +kubebuilder:default=Optional
+	// +optional
+	AuthClients TLSAuthClients `json:"authClients,omitempty"`
+
+	// AuthClientsUser configures how Valkey maps an authenticated client
+	// certificate to an ACL user. Set to `CN` to use the certificate's Common
+	// Name, or `URI` to use the first matching URI from the certificate's Subject
+	// Alternative Name (SAN). Defaults to `Disabled`. Requires Valkey >= 9.0.0.
+	// +kubebuilder:default=Disabled
+	// +optional
+	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`
 }
 
 // NodeTLSCertificates groups the certificate slots for a ValkeyNode.
