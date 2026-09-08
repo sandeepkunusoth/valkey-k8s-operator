@@ -574,13 +574,13 @@ metadata:
 spec:
   shards: 1
   replicas: 1
-	  networking:
-	    tls:
-	      certificates:
-	        server:
-	          secretName: %s
-	      authClients: Required
-	      authClientsUser: CN
+  networking:
+    tls:
+      certificates:
+        server:
+          secretName: %s
+      authClients: Required
+      authClientsUser: CN
   users:
     - name: alice
       enabled: true
