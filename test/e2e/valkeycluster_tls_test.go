@@ -181,8 +181,10 @@ spec:
 		It("defaults spec.tls.authClients to Optional when omitted and renders tls-auth-clients optional", func() {
 			cr, err := utils.GetValkeyClusterStatus(valkeyClusterName)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(cr.Spec.TLS.AuthClients).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
-			Expect(cr.Spec.TLS.AuthClientsUser).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+			tls := cr.GetTLS()
+			Expect(tls).NotTo(BeNil())
+			Expect(tls.AuthClients).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+			Expect(tls.AuthClientsUser).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
 
 			cmd := exec.Command("kubectl", "get", "configmap",
 				fmt.Sprintf("valkey-%s", valkeyClusterName),
@@ -572,11 +574,13 @@ metadata:
 spec:
   shards: 1
   replicas: 1
-  tls:
-    certificate:
-      secretName: %s
-    authClients: Required
-    authClientsUser: CN
+  networking:
+    tls:
+      certificates:
+        server:
+          secretName: %s
+      authClients: Required
+      authClientsUser: CN
   users:
     - name: alice
       enabled: true

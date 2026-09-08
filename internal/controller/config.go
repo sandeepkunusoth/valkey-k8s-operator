@@ -88,17 +88,16 @@ func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, host
 		config["tls-key-file"] = tlsCertMountPath + "/" + tlsSecretKeyKey
 		config["tls-ca-cert-file"] = tlsCertMountPath + "/" + tlsSecretKeyCA
 
-		if tls.AuthClients != "" {
-			if directive, ok := tls.AuthClients.AuthClientsDirective(); ok {
-				config["tls-auth-clients"] = directive
-			}
+		authClients := tls.AuthClients
+		if authClients == "" {
+			authClients = valkeyiov1alpha1.TLSAuthClientsOptional
+		}
+		if directive, ok := authClients.AuthClientsDirective(); ok {
+			config["tls-auth-clients"] = directive
 		}
 
-		if tls.AuthClientsUser != "" {
-			// Automatically authenticate TLS clients as ACL users based on their certificate fields.
-			if directive, ok := tls.AuthClientsUser.AuthClientsUserDirective(); ok {
-				config["tls-auth-clients-user"] = directive
-			}
+		if directive, ok := tls.AuthClientsUser.AuthClientsUserDirective(); ok {
+			config["tls-auth-clients-user"] = directive
 		}
 	}
 
