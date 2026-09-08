@@ -29,7 +29,7 @@ config:
   maxmemory-policy: noeviction
 ```
 
-Use `config` to pass [Valkey configuration](https://valkey.io/topics/valkey.conf/) to all nodes in the cluster.
+Use `config` to pass [Valkey configuration](https://valkey.io/topics/valkey.conf/) to all nodes in the cluster. Some directives require a newer Valkey release; see [Version-gated config](#version-gated-config)
 
 Listed below are configurations can be applied live without rolling pods. We are adopting configs that can be applied live on a case-by-case basis. For any requests please [raise an issue](https://github.com/valkey-io/valkey-operator/issues/new).
 
@@ -38,6 +38,20 @@ maxclients
 maxmemory         # There are no safeguards, ensure you do not exceed your container capacity
 maxmemory-policy
 ```
+
+#### Version-gated config
+
+Some user-set `spec.config` directives are only valid on newer Valkey releases. When the operator cannot determine the image version (for example `latest` or a digest-pinned image), or the detected version does not support a directive, it drops that directive from the rendered `valkey.conf` and sets a `ConfigurationWarning` condition with reason `UnsupportedConfigDirective`.
+
+Version gating applies only to keys the user sets in `spec.config`. Operator-managed directives rendered through the base config (for example `cluster-enabled`, TLS ports) are not filtered by `versionGatedConfig`; any future operator-owned directive that requires a newer Valkey minor must be gated explicitly where it is added.
+
+If more than one configuration warning is active at the same time, the operator combines them into a single `ConfigurationWarning` condition with reason `MultipleConfigurationWarnings`.
+
+The warning message names the directive, the minimum supported Valkey version, and the detected version or detection failure. The operator also emits a Kubernetes `Warning` event on the transition into this state. If you later switch to a supporting image, the condition clears on the next reconcile.
+
+For example, `tls-auto-reload-interval` requires Valkey `9.1.0` or newer.
+
+Apply the image change and wait for the roll to finish before adding a version-gated directive. Adding both in one spec change can write the new config to the shared ConfigMap before every node has the new image, and a node still on the old image can crash-loop if it restarts.
 
 #### Constraints
 
@@ -68,12 +82,16 @@ containers:
 ```yaml
 exporter:
   enabled: true   # default
-  image: oliver006/redis_exporter:v1.80.0
+  image: oliver006/redis_exporter:v1.88.0
+  args: # optional command-line flags for exporter
+    - -ping-on-connect
   resources:
     requests:
       memory: "64Mi"
       cpu: "50m"
 ```
+
+NOTE: `oliver006/redis_exporter` command-line arguments have higher priority than the environment variables passed by default, so `exporter.args` can override them when needed.
 
 Each pod runs a `metrics-exporter` sidecar by default, exposing Prometheus metrics on port `9121`. To disable it:
 
@@ -170,7 +188,7 @@ scheduling:
   priorityClassName: high-priority
 ```
 
-`scheduling.tolerations`, `scheduling.nodeSelector`, `scheduling.affinity`, and `scheduling.priorityClassName` are passed through to every pod in the cluster. `priorityClassName` must reference an existing [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) and protects the Valkey pods from eviction under resource pressure.
+`scheduling.tolerations`, `scheduling.nodeSelector`, `scheduling.affinity`, and `scheduling.priorityClassName` are passed through to every pod in the cluster (`scheduling.nodeSelector` also carries the curated zone entry when [`zone.pinning`](#zone-axis-pinning) is set, see below). `priorityClassName` must reference an existing [PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) and protects the Valkey pods from eviction under resource pressure.
 
 #### Topology spread constraints
 
@@ -180,13 +198,13 @@ scheduling:
 >
 > Set a `labelSelector` that selects the pods you want counted; `valkey.io/cluster: <cluster-name>` selects every pod in the cluster.
 
-For the common intents such as keep a shard's pods on different nodes, spread each shard's primary across nodes, or spread all pods across nodes — prefer [`scheduling.node.spread`](#node-axis-spread) below. It fills in the correct label selectors for you and guarantees the constraints it emits don't collide. Reach for `topologySpreadConstraints` only when you need something `node.spread` doesn't express, such as a different `topologyKey` (for example zone spreading).
+For the common intents such as keep a shard's pods on different nodes, spread each shard's primary across nodes, or spread all pods across nodes — prefer [`scheduling.node.spread`](#node-axis-spread) below, and for the zone equivalents prefer [`scheduling.zone.spread`](#zone-axis-spread) or, to pin each pod to a specific zone rather than balance it, [`scheduling.zone.pinning`](#zone-axis-pinning). These fill in the correct label selectors for you and guarantee the constraints they emit don't collide. Reach for `topologySpreadConstraints` only when you need something neither axis expresses, such as a topology key other than `kubernetes.io/hostname` or `topology.kubernetes.io/zone`.
 
-> **Do not overlap a hostname constraint with `node.spread`.**
+> **Do not overlap a hostname or zone constraint with `node.spread`/`zone.spread`.**
 >
-> A passthrough constraint on `topologyKey: kubernetes.io/hostname` collides with an enabled `node.spread.primaries` or `node.spread.pods` that renders the same `whenUnsatisfiable` (`Required` → `DoNotSchedule`, `Preferred` → `ScheduleAnyway`), because the pod would carry two constraints sharing that `{topologyKey, whenUnsatisfiable}` pair — which Kubernetes forbids.
+> A passthrough constraint on `topologyKey: kubernetes.io/hostname` collides with an enabled `node.spread.primaries` or `node.spread.pods` that renders the same `whenUnsatisfiable` (`Required` → `DoNotSchedule`, `Preferred` → `ScheduleAnyway`), because the pod would carry two constraints sharing that `{topologyKey, whenUnsatisfiable}` pair — which Kubernetes forbids. The same is true on `topologyKey: topology.kubernetes.io/zone`: a passthrough constraint there collides with an enabled `zone.spread.shard`, `zone.spread.primaries`, or `zone.spread.pods` of matching `whenUnsatisfiable`.
 >
-> The operator rejects this combination at admission, so keep hostname spreading in `node.spread` and reserve `topologySpreadConstraints` for other topology keys (for example zones). A passthrough hostname constraint whose `whenUnsatisfiable` differs from what the enabled dimensions render is still allowed.
+> The operator rejects both combinations at admission, so keep hostname spreading in `node.spread`, keep zone spreading in `zone.spread`, and reserve `topologySpreadConstraints` for other topology keys. A passthrough constraint whose `whenUnsatisfiable` differs from what the enabled dimensions render is still allowed.
 
 Each constraint must include:
 
@@ -204,13 +222,13 @@ Each constraint must include:
 | `DoNotSchedule` | Hard rule. Kubernetes will not schedule the pod if placement would violate the constraint. | Stronger placement guarantees, but pods may remain `Pending` when there are not enough eligible nodes or topology domains. The operator marks the cluster `Degraded` with reason `PodUnschedulable`. |
 | `ScheduleAnyway` | Soft rule. Kubernetes prefers satisfying the constraint, but can still schedule the pod if it cannot. | Better scheduling availability in constrained clusters, but matching pods may still share a topology domain. |
 
-Example — spread every pod in the cluster across availability zones, preferring but not requiring an even distribution:
+Example — spread pods across rack failure domains, a topology that neither `node.spread` nor `zone.spread` expresses (your nodes must carry the label):
 
 ```yaml
 scheduling:
   topologySpreadConstraints:
     - maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
+      topologyKey: topology.example.com/rack   # a custom node label; neither node.spread nor zone.spread covers it
       whenUnsatisfiable: ScheduleAnyway
       labelSelector:
         matchLabels:
@@ -249,7 +267,11 @@ Each field takes a `mode`:
 | `Preferred` | Soft rule: a `preferredDuringSchedulingIgnoredDuringExecution` anti-affinity term (`shard`), or a topology spread constraint with `whenUnsatisfiable: ScheduleAnyway` (`primaries`, `pods`). Kubernetes biases placement but never leaves a pod `Pending` because of it. |
 | `Required` | Hard rule: a `requiredDuringSchedulingIgnoredDuringExecution` anti-affinity term (`shard`), or a topology spread constraint with `whenUnsatisfiable: DoNotSchedule` (`primaries`, `pods`). A pod that cannot satisfy the rule stays `Pending`. |
 
-> **`primaries` targets the primary at creation, not the live primary.** It keys its topology spread constraint on each shard's `node-index=0` pod. A topology spread constraint is only evaluated when a pod is scheduled — never re-evaluated on a running pod — so `primaries` deliberately targets this stable identity rather than a live primary-role label. After a failover the constraint keeps spreading the `node-index=0` pods, which may no longer be the primaries, until primary failback is implemented and realigns desired with actual. You should read `primaries: Required` as "spread the pods that start as primaries", not as a continuous guarantee that the current primaries sit on distinct nodes.
+> **`primaries` targets the primary at creation, not the live primary.**
+>
+> It keys its topology spread constraint on each shard's `node-index=0` pod. A topology spread constraint is only evaluated when a pod is scheduled and never re-evaluated on a running pod, so `primaries` deliberately targets this stable identity rather than a live primary-role label. After a failover the constraint keeps spreading the `node-index=0` pods, which may no longer be the primaries, until primary failback ([#311](https://github.com/valkey-io/valkey-operator/issues/311)) is implemented and realigns desired with actual. You should read `primaries: Required` as "spread the pods that start as primaries", not as a continuous guarantee that the current primaries sit on distinct nodes.
+>
+> This note will be removed once [#311](https://github.com/valkey-io/valkey-operator/issues/311) is implemented.
 
 `shard`, `primaries`, and `pods` all default to `Disabled` when `node.spread`, `scheduling.node`, or `scheduling` itself is omitted. This is opt-in and matches today's behaviour, so an existing cluster that sets no scheduling constraints at all renders byte-identical pod specs after an operator upgrade — no fleet-wide rolling restart. A cluster that already sets `topologySpreadConstraints` is not covered by that guarantee: those constraints lose the old implicit shard-scoping under verbatim rendering (see above), so it gets a one-time re-render on upgrade even without touching `node.spread`. The trade-off is that nothing stops a shard's primary and replica from landing on the same node until you opt in. For production availability, set `shard` to at least `Preferred` so that losing a single node cannot take out every copy of a shard's data.
 
@@ -260,21 +282,134 @@ Each field takes a `mode`:
 
 Mixing strengths (one `Preferred`, the other `Required`), or leaving one of them `Disabled`, is always allowed. `shard` is exempt from this rule since it renders as pod anti-affinity rather than a topology spread constraint, so it can be combined freely with any `primaries`/`pods` setting.
 
-### TLS
+#### Zone axis spread
 
 ```yaml
-tls:
-  certificate:
-    secretName: valkey-tls
+scheduling:
+  zone:
+    spread:
+      shard:
+        mode: Preferred
 ```
 
-`tls` enables TLS for all cluster communication. The Secret must contain:
+`scheduling.zone.spread` mirrors `node.spread`'s three dimensions, but keyed on `topology.kubernetes.io/zone` instead of `kubernetes.io/hostname`:
+
+| Field | Rendered as | Effect |
+|---|---|---|
+| `shard` | Topology spread constraint scoped to each shard's pods | Balances a shard's pods across zones. |
+| `primaries` | Topology spread constraint on each shard's node-index-0 pod | Balances the pod that holds each shard's primary (at creation) across zones. |
+| `pods` | Topology spread constraint on every cluster pod | Balances all of the cluster's pods across zones, regardless of shard. |
+
+On the node axis, `shard` renders as pod anti-affinity: a hard `Required` setting can leave pods `Pending` rather than colocate them. On the zone axis, `shard` is a topology spread constraint instead, because forbidding same-zone placement outright would make a shard unschedulable in any cluster with fewer zones than shard members. So zone `shard` balances rather than forbids: it keeps a shard's replicas as evenly spread across zones as `maxSkew` allows, but two members of the same shard may still land in the same zone once the shard is larger than the number of available zones.
+
+Each field takes the same `Disabled` / `Preferred` / `Required` modes as `node.spread`, with the same soft/hard semantics. All three default to `Disabled` when `zone.spread`, `scheduling.zone`, or `scheduling` itself is omitted, so the zone axis is opt-in and emits nothing until you enable it.
+
+`shard`, `primaries`, and `pods` all render as topology spread constraints on `topology.kubernetes.io/zone`. On the node axis `shard` is exempt from the slot limit because it renders as anti-affinity, but on the zone axis all three dimensions compete for the same two slots (`DoNotSchedule` and `ScheduleAnyway`) per zone. The operator rejects any combination where more than one of the three is `Required`, or more than one is `Preferred`, at admission; leaving at least two of the three `Disabled` (as in the sample above, which enables only `shard`) is the common case.
+
+The zone axis is independent of the node axis. `node.spread` and `zone.spread` key on different topology keys, so a cluster can enable both at once, for example `node.spread.shard: Required` alongside `zone.spread.shard: Preferred`, to keep shard members off the same node while also biasing them across zones.
+
+> **Zone `primaries` is placement-time, not maintained**
+>
+> As on the node axis, `zone.spread.primaries` constrains each shard's `node-index=0` pod — the primary *at creation*, not the live primary. The constraint is evaluated only when a pod is scheduled, so after a failover the promoted primary can sit at `node-index>0` in whatever zone it landed; the spread then reflects where primaries were *placed*, not where they currently are, until primary failback ([#311](https://github.com/valkey-io/valkey-operator/issues/311)) realigns them. Read it as "spread the pods that start as primaries" and not a live guarantee.
+
+> **Cross-zone spreading has a cost**
+>
+> Placing a shard's primary and replicas in different availability zones means every replicated write crosses a zone boundary; adding write latency and inter-zone data-transfer cost (if applicable). It is usually the right trade for availability (a single zone outage cannot take out a whole shard), but it is not free, consider the trade-off before applying.
+
+#### Zone axis pinning
+
+```yaml
+scheduling:
+  zone:
+    pinning:
+      zones:
+        - eu-west-1a
+        - eu-west-1b
+        - eu-west-1c
+```
+
+Where `zone.spread` asks the scheduler to balance pods across zones, `zone.pinning` decides each pod's zone outright. A pod's zone is `zones[(shardIndex + nodeIndex) % len(zones)]`, rendered as a `topology.kubernetes.io/zone` entry in the pod's `nodeSelector`. For 3 shards with 1 replica each and the three zones above:
+
+| ValkeyNode | Shard | Node index | Role at creation | Zone |
+|---|---|---|---|---|
+| `cluster-0-0` | 0 | 0 | primary | `eu-west-1a` |
+| `cluster-0-1` | 0 | 1 | replica | `eu-west-1b` |
+| `cluster-1-0` | 1 | 0 | primary | `eu-west-1b` |
+| `cluster-1-1` | 1 | 1 | replica | `eu-west-1c` |
+| `cluster-2-0` | 2 | 0 | primary | `eu-west-1c` |
+| `cluster-2-1` | 2 | 1 | replica | `eu-west-1a` |
+
+While there are at least as many zones as shards, primaries land in distinct zones as a side effect of the modulo rather than as an enforced property; once shards exceed the zone count, primaries repeat zones too (with 6 shards over 3 zones, shards 0 and 3 share a zone). When a shard has more members than there are zones, some of them necessarily share one. Adding shards or replicas never moves an existing pod, because a pod's indices do not change.
+
+The zone list is **immutable while pinning is set**, because changing it reassigns nearly every pod at once. To change the sequence, remove `pinning`, let the cluster reconcile, then re-add it with the new list. On a cluster with persistence this is not a routine change: re-adding a different list has the same effect as adding pinning for the first time, so read the persistence note below first. Entries must be unique — a repeated zone silently skews the round-robin. The list holds at most 32 entries, each at most 63 characters (the Kubernetes label-value limit, which zone values must satisfy anyway). Pinning also cannot be combined with any non-`Disabled` `zone.spread` dimension, since pinning already fixes every pod's zone. All of this is rejected at admission.
+
+Pinning renders the `topology.kubernetes.io/zone` key itself, so `scheduling.nodeSelector` may not also set that key; the operator rejects the combination rather than silently overwriting your value. Your `scheduling.affinity` is left untouched — Kubernetes ANDs `nodeSelector` with `nodeAffinity`, so a node must satisfy both. The node axis is independent: `node.spread.*` keys on `kubernetes.io/hostname` and composes with pinning freely.
+
+If a pod cannot be placed in its pinned zone — no capacity, a `nodeSelector`/`affinity` that contradicts the pin, or a passthrough `topologySpreadConstraints` entry on `topology.kubernetes.io/zone` that the pinned distribution cannot satisfy (pinning spreads pods unevenly whenever `shards × (replicas+1)` is not a multiple of `len(zones)`, which can make a `maxSkew: 1` / `DoNotSchedule` zone constraint unsatisfiable) — it stays `Pending` and the operator marks the cluster `Degraded` with reason `PodUnschedulable`.
+
+> **With persistence, pin at creation time**
+>
+> Persistent volumes are zonal on the major clouds, and a volume cannot follow a pod to another zone. Two consequences:
+>
+> - Your StorageClass must use `volumeBindingMode: WaitForFirstConsumer` (the default for the cloud CSI drivers) so the volume is provisioned *after* the scheduler places the pod. With `Immediate`, volumes are provisioned in arbitrary zones before scheduling and pinning cannot work at all, even on a new cluster.
+> - Adding `pinning` to an existing persistent cluster will strand every pod whose volume sits in a different zone than the modulo assigns: the pod stays `Pending` and the operator marks the cluster `Degraded` with reason `PodUnschedulable`. The operator cannot detect this at admission, because it does not know where your volumes are.
+>
+> **To recover, remove `pinning`.** Each pod reschedules onto its existing volume's zone and the cluster returns to health with no data loss.
+>
+> If you instead want to migrate a live persistent cluster into its pinned zones, the volumes have to be recreated, which is destructive and must be done per shard: recycle one replica's PVC and pod at a time and let it re-sync from its primary, then fail over onto a re-synced replica, then recycle the old primary's PVC and pod. **A shard with no replicas cannot be migrated this way** — deleting its only volume destroys that shard's keyspace and the slots it owns. Note also that the operator sets `persistentVolumeClaimRetentionPolicy: Retain`, so the old volumes are never reclaimed for you and will keep costing money until you delete them, and that failing over leaves each shard's primary away from `node-index=0` until primary failback ([#311](https://github.com/valkey-io/valkey-operator/issues/311)) lands.
+>
+> A milder form of this applies to `zone.spread.*` set to `Required`: a recreated pod can be pushed away from its volume's zone.
+
+### Networking
+
+```yaml
+networking:
+  clusterDomain: cluster.local   # optional; default cluster.local
+  discovery:
+    preferredEndpointType: IP    # IP (default) | Hostname
+  tls:
+    certificates:
+      server:
+        secretName: valkey-tls
+```
+
+#### Discovery (in-cluster announce)
+
+`networking.discovery.preferredEndpointType` controls how nodes advertise themselves after `CLUSTER SLOTS`:
+
+| Value | Behaviour |
+|---|---|
+| `IP` (default) | Announce pod IPs. Same as historical behaviour. |
+| `Hostname` | Announce `<pod>.<headlessService>.<namespace>.svc.<clusterDomain>`. Requires `workloadType: StatefulSet` (or omit for the default). |
+
+Cluster-owned StatefulSets use the **cluster headless Service** as `spec.serviceName` so multi 1-pod STS get real per-pod DNS under that Service.
+
+Changing `serviceName` on an existing StatefulSet is immutable. The operator deletes the StatefulSet with **orphan** cascade and recreates it with the new `serviceName` while **keeping the live pod template**. Existing pods are adopted, not deleted by that step. Per-pod DNS names under the headless Service (and the pod `subdomain` the STS controller sets) become reliable after a later pod replace (for example a WorkloadRevision-staged roll), not after the STS-only recreate alone.
+
+`networking.clusterDomain` must match the kubelet cluster domain (`--cluster-domain`). The field is a DNS subdomain (optional trailing dot). Hostname announce uses an absolute FQDN (trailing dot) so resolvers do not append search domains. The default TLS `serverName` is that Service DNS name without the trailing dot.
+
+**TLS tip:** with TLS and IP announce (including the default), clients that re-dial announced pod IPs often fail certificate name checks. Prefer `preferredEndpointType: Hostname` and a server cert SAN such as `*.<headlessService>.<namespace>.svc.<clusterDomain>`. The operator sets a non-blocking `TLSEndpointWarning` condition when TLS is on and announce stays IP; Ready is not forced False for that alone.
+
+#### TLS
+
+`networking.tls` enables TLS for all cluster communication. When set, `certificates.server.secretName` is required. The Secret must contain:
 
 | Key | Description |
 |---|---|
 | `ca.crt` | Certificate authority |
 | `tls.crt` | Server certificate (or chain) |
 | `tls.key` | Private key for the certificate |
+
+`certificates` is a set of named slots. `server` is the only one today; the trust-source override, the outbound peer identity and the control-plane identity land as sibling slots in later phases of [#360](https://github.com/valkey-io/valkey-operator/issues/360).
+
+`serverName` is the hostname the operator verifies when it dials a node by pod IP. When unset, it uses `valkey-<name>.<namespace>.svc.<clusterDomain>` (default `cluster.local`). The cluster writes that resolved name onto each `ValkeyNode`; the node client and the metrics exporter (`REDIS_EXPORTER_TLS_SERVER_NAME`) use it as-is. The exporter still dials `localhost`. This does not change what nodes announce in `CLUSTER SLOTS`.
+
+Set `tls-auto-reload-interval` in `spec.config` to have automatic reload of certificates (for example certificates auto-renewed from cert-manager) without a restart. It requires Valkey `9.1.0` or newer; on unsupported or indeterminate images the directive is ignored and a `ConfigurationWarning` condition is emitted. See [Version-gated config](#version-gated-config) for rollout ordering when upgrading the image.
+
+```yaml
+config:
+  tls-auto-reload-interval: "3600"
+```
 
 For certificate-based client authentication and certificate-to-ACL-user mapping, see [Mutual TLS (mTLS) certificate-based ACL authentication](./mtls.md).
 
@@ -302,10 +437,14 @@ users:
 `users` defines per-user [ACL rules](https://valkey.io/topics/acl/) distributed to every node via a Secret mounted into each pod.
 
 - `passwordSecret` — one or more password keys from a Secret (multiple keys supported for rotation)
-- `commands` — command categories (`@read`, `@write`, `@admin`, etc.), individual commands, and subcommands to allow or deny
+- `commands` — command categories (`@read`, `@write`, `@admin`, etc.), individual commands, module commands (`json.set`), and subcommands to allow or deny. Entries are validated on admission: a category is `@` followed by letters, a command is a dot-separated name optionally followed by one `|` and a subcommand. The name itself is not checked against the server, so a well-formed but unknown command is only rejected later by Valkey when the ACL is loaded. Module commands are in no category except `@all`, so they must be granted individually
 - `keys` — key patterns by access type: `readWrite`, `readOnly`, `writeOnly`
 - `channels` — pub/sub channel patterns
 - `permissions` — raw ACL string appended after any generated rules
+
+ACL changes are applied to running nodes with `ACL LOAD` (no pod restart), the same way live-settable config is applied without rolling pods. Each node reports an [`ACLApplied`](status-conditions.md#aclapplied) condition once the change is live on the server. To confirm a node loaded the current revision, including permission-only edits, the operator appends a disabled bookkeeping user `_operator_acl_revision` whose password is a hash of the managed ACL. It cannot authenticate and is expected to appear in `ACL LIST`.
+
+> **Upgrade note:** Live application relies on the operator's `_operator` user holding the `acl|load`, `acl|getuser`, and `acl|users` commands, which older operator versions did not grant. Upgrading onto this version rewrites the pod template (it drops a now-unused annotation), so every existing cluster rolls once and picks up the new grants on restart, after which ACL changes apply live. The exception is a cluster old enough to predate that annotation entirely: it gets no automatic roll, so it needs a one-time manual pod restart after the upgrade before live ACL applies.
 
 #### Constraints
 

@@ -22,7 +22,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/client-go/tools/events"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -127,29 +126,47 @@ func proactiveFailover(ctx context.Context, recorder events.EventRecorder, clust
 	}
 }
 
-// nodeRequiresRoll returns true when the node has a running pod whose spec
-// differs from the desired spec, meaning a spec update will trigger a pod roll.
-func nodeRequiresRoll(current *valkeyiov1alpha1.ValkeyNode, desired *valkeyiov1alpha1.ValkeyNode) bool {
+// effectiveWorkloadType maps the empty WorkloadType to StatefulSet (the CRD
+// default), so ""→"StatefulSet" spec changes are not mistaken for a swap.
+func effectiveWorkloadType(t valkeyiov1alpha1.WorkloadType) valkeyiov1alpha1.WorkloadType {
+	if t == "" {
+		return valkeyiov1alpha1.WorkloadTypeStatefulSet
+	}
+	return t
+}
+
+// needsProactiveFailoverForRoll reports whether a Spec update should run
+// proactive failover before applying.
+//
+// A pod roll is decided by the rendered template, not the spec encoding:
+// desired.Spec.WorkloadRevision already holds podTemplateRollHash of the
+// desired template (see setDesiredWorkloadRevision), and liveTemplateHash is
+// the same hash of the live StatefulSet/Deployment template (empty when the
+// workload does not exist). Changes to Spec that render the same template
+// therefore never fail over; an empty liveTemplateHash means the update
+// creates a workload rather than rolling one. Config never enters the decision
+// directly: live-settable keys are applied via CONFIG SET (see applyLiveConfig)
+// and the roll-relevant subset reaches the template as a derived annotation
+// (see buildPodTemplateAnnotations), so it is captured by the hashes.
+func needsProactiveFailoverForRoll(current, desired *valkeyiov1alpha1.ValkeyNode, liveTemplateHash string) bool {
 	if current.Status.PodIP == "" {
 		return false
 	}
-	// Config changes are applied live via CONFIG SET (see applyLiveConfig) and
-	// must not trigger a roll; the roll-relevant config subset is already
-	// captured by Spec.ServerConfigHash.
-	currentSpec, desiredSpec := current.Spec, desired.Spec
-	currentSpec.Config, desiredSpec.Config = nil, nil
-	return !equality.Semantic.DeepEqual(currentSpec, desiredSpec)
+	// A StatefulSet↔Deployment swap replaces pods even when both kinds render
+	// an identical template.
+	if effectiveWorkloadType(current.Spec.WorkloadType) != effectiveWorkloadType(desired.Spec.WorkloadType) {
+		return true
+	}
+	return liveTemplateHash != "" && liveTemplateHash != desired.Spec.WorkloadRevision
 }
 
-// anyNodeRequiresRoll returns true if any existing ValkeyNode in the list has
-// a spec diff against what the cluster would build for it. Used as a cheap
-// pre-flight check to avoid opening Valkey connections on steady-state reconciles.
+// anyNodeRequiresFailoverAwareRoll is true when at least one node needs a Spec
+// update that should scrape live topology for proactive failover / replica-first
+// primary placement. Pure WorkloadRevision backfill (live template already
+// matches) does not qualify.
 //
-// configHash must be the current server config hash so the desired spec matches
-// what reconcileValkeyNode actually applies; omitting it would make every
-// settled node (which carries the hash) report a spurious diff and defeat the
-// purpose of this pre-flight check.
-func anyNodeRequiresRoll(cluster *valkeyiov1alpha1.ValkeyCluster, nodeList *valkeyiov1alpha1.ValkeyNodeList, configHash string) bool {
+// liveTemplateHashes maps ValkeyNode name -> hash of live pod template.
+func anyNodeRequiresFailoverAwareRoll(cluster *valkeyiov1alpha1.ValkeyCluster, nodeList *valkeyiov1alpha1.ValkeyNodeList, liveTemplateHashes map[string]string) bool {
 	byName := make(map[string]*valkeyiov1alpha1.ValkeyNode, len(nodeList.Items))
 	for i := range nodeList.Items {
 		byName[nodeList.Items[i].Name] = &nodeList.Items[i]
@@ -158,9 +175,17 @@ func anyNodeRequiresRoll(cluster *valkeyiov1alpha1.ValkeyCluster, nodeList *valk
 	for shardIndex := range int(cluster.Spec.Shards) {
 		for nodeIndex := range nodesPerShard {
 			desired := buildClusterValkeyNode(cluster, shardIndex, nodeIndex)
-			desired.Spec.ServerConfigHash = configHash
-			if current, ok := byName[desired.Name]; ok && nodeRequiresRoll(current, desired) {
+			if err := setDesiredWorkloadRevision(desired); err != nil {
 				return true
+			}
+			if current, ok := byName[desired.Name]; ok {
+				liveHash := ""
+				if liveTemplateHashes != nil {
+					liveHash = liveTemplateHashes[desired.Name]
+				}
+				if needsProactiveFailoverForRoll(current, desired, liveHash) {
+					return true
+				}
 			}
 		}
 	}

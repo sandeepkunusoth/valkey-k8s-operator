@@ -975,6 +975,11 @@ spec:
                         x-kubernetes-list-type: atomic
                     type: object
                 type: object
+              clusterDomain:
+                description: |-
+                  ClusterDomain is set by the ValkeyCluster controller from
+                  spec.networking.clusterDomain for TLS ServerName and Hostname FQDNs.
+                type: string
               config:
                 additionalProperties:
                   type: string
@@ -2513,8 +2518,17 @@ spec:
               exporter:
                 description: Exporter defines the metrics exporter sidecar configuration.
                 properties:
+                  args:
+                    description: Additional cmdline arguments passed to exporter sidecar
+                      container.
+                    items:
+                      type: string
+                    type: array
                   enabled:
-                    description: Enable or disable the exporter sidecar container
+                    description: |-
+                      Enable or disable the exporter sidecar container. Unset means enabled
+                      on a ValkeyCluster; a ValkeyNode runs the sidecar only on an explicit
+                      true, which the cluster controller propagates when enabled.
                     type: boolean
                   image:
                     description: Override the default exporter image
@@ -3062,6 +3076,16 @@ spec:
                         type: string
                     type: object
                 type: object
+              preferredEndpointType:
+                description: |-
+                  PreferredEndpointType is set by the ValkeyCluster controller from
+                  spec.networking.discovery. PreferredEndpointTypeHostname switches announce
+                  flags and managed config to hostname mode. Standalone nodes leave this empty
+                  (IP announce).
+                enum:
+                - IP
+                - Hostname
+                type: string
               priorityClassName:
                 description: |-
                   PriorityClassName is the name of an existing PriorityClass applied to
@@ -3127,13 +3151,6 @@ spec:
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
                 type: object
-              serverConfigHash:
-                description: |-
-                  ServerConfigHash is a hash of the server ConfigMap contents. When set by
-                  the ValkeyCluster controller it bumps the spec Generation, which triggers
-                  the ValkeyNode controller to reconcile and update the pod template
-                  annotation — causing a rolling restart when the cluster config changes.
-                type: string
               serverConfigMapName:
                 description: |-
                   ServerConfigMapName specifies the name of the ConfigMap that contains the
@@ -3175,25 +3192,43 @@ spec:
                     - URI
                     - Disabled
                     type: string
-                  certificate:
-                    description: |-
-                      Certificate is a reference to a Kubernetes secret that contains the certificate and private key for enabling TLS.
-                      The referenced secret should contain the following:
-
-                      - `ca.crt`: The certificate authority.
-                      - `tls.crt`: The certificate (or a chain).
-                      - `tls.key`: The private key to the first certificate in the certificate chain.
+                  certificates:
+                    description: Certificates holds the certificate slots mounted
+                      into the node pod.
                     properties:
-                      secretName:
-                        description: SecretName is the name of the secret.
-                        type: string
+                      server:
+                        description: |-
+                          Server is the node identity presented to clients and peers, and the
+                          trust root for the node. The referenced secret must contain `ca.crt`,
+                          `tls.crt` and `tls.key`.
+                        properties:
+                          secretName:
+                            description: SecretName is the name of the secret.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - secretName
+                        type: object
+                    required:
+                    - server
                     type: object
+                  serverName:
+                    description: |-
+                      ServerName is the hostname used for TLS verification when connecting
+                      to the pod IP. For cluster-owned nodes this is
+                      spec.networking.tls.serverName, or
+                      valkey-<cluster>.<ns>.svc.<clusterDomain> if that is unset.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                    x-kubernetes-validations:
+                    - message: must be a valid DNS-1123 subdomain (lowercase alphanumerics,
+                        '-' and '.', starting and ending with an alphanumeric)
+                      rule: '!format.dns1123Subdomain().validate(self).hasValue()'
+                required:
+                - certificates
                 type: object
-                x-kubernetes-validations:
-                - message: authClientsUser=CN/URI has no effect when authClients=Disabled
-                    (Valkey ignores client certificates)
-                  rule: '!(self.authClients == ''Disabled'' && self.authClientsUser
-                    != ''Disabled'')'
               tolerations:
                 description: Tolerations defines the pod tolerations.
                 items:
@@ -3416,6 +3451,15 @@ spec:
                   UsersACLSecretName is the name of the Secret containing the ACL user
                   file. When set, mounts a users-acl volume from this Secret so the
                   container can load aclfile /config/users/users.acl.
+                type: string
+              workloadRevision:
+                description: |-
+                  WorkloadRevision is a hash of the fully built pod template the ValkeyCluster
+                  controller authorizes this node to apply. The ValkeyCluster controller sets
+                  it (cluster-owned nodes only) when advancing a roll. The ValkeyNode
+                  controller applies a rolling StatefulSet/Deployment template update only
+                  when the template it builds hashes to this value. Standalone nodes ignore
+                  the field and apply immediately.
                 type: string
               workloadType:
                 default: StatefulSet

@@ -40,6 +40,16 @@ const (
 	hashAnnotationKey = "valkey.io/internal-acl-hash"
 	aclFilename       = "users.acl"
 	passwordLength    = 26
+	// aclRevisionUser is a disabled bookkeeping user appended to the
+	// aclfile whose only password hash is the hash of the managed ACL content
+	// above it. The ValkeyNode controller waits for this user to be present with
+	// the current hash before reporting ACLApplied, which is how it knows the
+	// running server loaded the current aclfile revision rather than a stale
+	// mounted copy. Because the hash covers the whole managed ACL, it also
+	// catches permission-only edits that leave user and password identities
+	// unchanged. It is disabled (off), so its content-hash password is never a
+	// usable credential.
+	aclRevisionUser = "_operator_acl_revision"
 )
 
 var (
@@ -63,6 +73,10 @@ var (
 			"+cluster|migrateslots",      // migrate slots between shards
 			"+cluster|set-config-epoch",  // set epoch on new nodes
 			"+config|set",                // apply live config changes
+			"+config|get",                // verify applied config / audit current state
+			"+acl|load",                  // reload the aclfile live to apply ACL changes without a pod roll
+			"+acl|getuser",               // read back a user's password hashes to verify the reload landed
+			"+acl|users",                 // read the user set to verify membership after a reload
 			"+info",                      // node info and replication status
 			"+role",                      // current replication role
 		}, " "),
@@ -70,8 +84,8 @@ var (
 		exporterUser: "-@all +@connection +memory -readonly +strlen +config|get +xinfo +pfcount -quit +zcard +type +xlen -readwrite -command +client -wait +scard +llen +hlen +get +eval +slowlog +cluster|info +cluster|slots +cluster|nodes -hello -echo +info +latency +scan -reset -auth -asking",
 
 		replicationUser: strings.Join([]string{
-			"-@all +psync +replconf +ping", // the ACL rawstring for replication is taken from Valkey documentation: https://valkey.io/topics/acl/#acl-rules-for-sentinel-and-replicas
-			"+cluster|syncslots",           // required for atomic slot migration
+			"-@all +psync +sync +replconf +ping", // the ACL rawstring for replication is taken from Valkey documentation: https://valkey.io/topics/acl/#acl-rules-for-sentinel-and-replicas; +sync is required for dual-channel replication
+			"+cluster|syncslots",                 // required for atomic slot migration
 			// Today, Atomic slot migration streams the snapshot as a command stream
 			// (SELECT + type-specific write commands from the AOF-rewrite)
 			"+select +@write ~* -flushall -flushdb -swapdb",
@@ -112,7 +126,7 @@ func operatorUserPasswordSecret(clusterName string) *corev1.SecretKeySelector {
 
 func (r *ValkeyClusterReconciler) createSystemUsersAcl(ctx context.Context, cluster *valkeyiov1alpha1.ValkeyCluster) (string, error) {
 	log := logf.FromContext(ctx)
-	log.Info("getting system users secret: " + cluster.Name)
+	log.V(1).Info("getting system users secret: " + cluster.Name)
 	var systemsAcls strings.Builder
 	systemUserSecret := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -146,7 +160,7 @@ func (r *ValkeyClusterReconciler) createSystemUsersAcl(ctx context.Context, clus
 	}
 
 	for _, user := range systemUsers {
-		if user == exporterUser && !cluster.Spec.Exporter.Enabled {
+		if user == exporterUser && !cluster.Spec.ExporterEnabled() {
 			continue
 		}
 		passwordHash := fmt.Sprintf("%x", sha256.Sum256(systemUserSecret.Data[user]))
@@ -195,6 +209,22 @@ func (r *ValkeyClusterReconciler) reconcileUsersAcl(ctx context.Context, cluster
 		return err
 	}
 	fmt.Fprintf(&usersAcls, "%s\n", systemUsersAcl)
+
+	// Append the revision user last, so its password hash covers every
+	// managed entry above. A node reports ACLApplied only once this user loads
+	// with this exact hash, which confirms the running server holds the current
+	// aclfile revision. Because the hash covers the whole managed ACL, a
+	// permission-only edit (unchanged users and passwords) still changes this
+	// user's hash and is detected. See aclRevisionUser and aclObservablyInSync.
+	//
+	// This is the only place the internal ACL Secret's aclfile is assembled,
+	// and the revision user must be present in every version written here. Any
+	// future code path that writes aclFilename without appending it would leave
+	// a stale revision on disk: aclObservablyInSync would then never match, and
+	// every node would report ACLApplied=False forever. Keep aclfile assembly in
+	// this one function.
+	revisionHash := fmt.Sprintf("%x", sha256.Sum256([]byte(usersAcls.String())))
+	fmt.Fprintf(&usersAcls, "user %s off resetchannels -@all #%s\n", aclRevisionUser, revisionHash)
 	usersAclsBytes := []byte(usersAcls.String())
 
 	// update the internal ACL secret with the generated users ACLs
@@ -372,7 +402,7 @@ func validateSystemUserPasswordSecret(data map[string][]byte, cluster *valkeyiov
 		}
 	}
 	for _, user := range u {
-		if user == exporterUser && !cluster.Spec.Exporter.Enabled {
+		if user == exporterUser && !cluster.Spec.ExporterEnabled() {
 			continue
 		}
 		return fmt.Errorf("%w: %s", errMissingSystemUser, user)
@@ -421,7 +451,7 @@ func (r *ValkeyClusterReconciler) upsertSystemUsersPasswordSecret(ctx context.Co
 		if _, alreadyExist := systemUsersSecret.Data[user]; alreadyExist {
 			continue
 		}
-		if user == exporterUser && !cluster.Spec.Exporter.Enabled {
+		if user == exporterUser && !cluster.Spec.ExporterEnabled() {
 			continue
 		}
 		password, err := generatePassword(passwordLength)
