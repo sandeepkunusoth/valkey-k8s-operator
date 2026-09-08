@@ -108,7 +108,9 @@ type SchedulingSpec struct {
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
-	// Affinity to apply to the pods, overrides NodeSelector if set.
+	// Affinity to apply to the pods. Kubernetes ANDs nodeAffinity with
+	// NodeSelector rather than one overriding the other: a node must satisfy
+	// both for the pod to be scheduled there.
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 
@@ -128,6 +130,12 @@ type SchedulingSpec struct {
 	// Disabled and no scheduling primitives are emitted.
 	// +optional
 	Node *NodeScheduling `json:"node,omitempty"`
+
+	// Zone groups scheduling constraints on the zone axis
+	// (topologyKey topology.kubernetes.io/zone). When unset, every zone spread is
+	// Disabled and no scheduling primitives are emitted.
+	// +optional
+	Zone *ZoneScheduling `json:"zone,omitempty"`
 }
 
 // SpreadMode selects the strength of a spread constraint.
@@ -183,16 +191,123 @@ type NodeScheduling struct {
 	Spread NodeSpread `json:"spread,omitempty"`
 }
 
+// ZoneSpread controls how the cluster's pods are distributed across zones
+// (topologyKey topology.kubernetes.io/zone). Every dimension renders as a
+// topology spread constraint — balancing, not anti-affinity — so zone shard
+// members may share a zone when the shard is larger than the zone count.
+type ZoneSpread struct {
+	// Shard balances the pods of each shard across zones, rendered as a topology
+	// spread constraint. Defaults to Disabled when unset.
+	// +optional
+	Shard SpreadConstraint `json:"shard,omitempty"`
+
+	// Primaries balances each shard's node-index-0 pod across zones, rendered as
+	// a topology spread constraint. Defaults to Disabled when unset.
+	// +optional
+	Primaries SpreadConstraint `json:"primaries,omitempty"`
+
+	// Pods balances all of the cluster's pods across zones, rendered as a
+	// topology spread constraint. Defaults to Disabled when unset. Enabling this
+	// alongside an explicit shard or primaries spread of the same strength is
+	// rejected (only one topology spread constraint per strength is permitted per
+	// zone).
+	// +optional
+	Pods SpreadConstraint `json:"pods,omitempty"`
+}
+
+// ZoneScheduling groups scheduling constraints on the zone axis
+// (topologyKey topology.kubernetes.io/zone).
+type ZoneScheduling struct {
+	// Spread distributes the cluster's pods across zones.
+	// +optional
+	Spread ZoneSpread `json:"spread,omitempty"`
+
+	// Pinning assigns every pod a deterministic zone by round-robin over an
+	// ordered zone list. Mutually exclusive with any non-Disabled Spread field
+	// on this axis: pinning already fixes each pod's zone, so a zone spread
+	// constraint can only contradict it. Unset means no pinning.
+	// +optional
+	Pinning *ZonePinning `json:"pinning,omitempty"`
+}
+
+// ZonePinning assigns every pod a deterministic zone. Rendered as a
+// topology.kubernetes.io/zone entry in the pod's nodeSelector, which Kubernetes
+// ANDs with any affinity the user supplies through the escape hatch.
+// +kubebuilder:validation:XValidation:rule="self.zones.all(z, self.zones.exists_one(y, y == z))",message="zone.pinning.zones entries must be unique: a repeated zone silently biases the round-robin"
+type ZonePinning struct {
+	// Zones is the ordered round-robin sequence. A pod's zone is
+	// zones[(shardIndex + nodeIndex) % len(zones)], so each shard's pods walk
+	// the list from a different starting point, and while there are at least
+	// as many zones as shards, primaries land in distinct zones as a side
+	// effect. When replicas+1 exceeds the zone count, some members of a shard
+	// necessarily share a zone.
+	//
+	// Adding shards or replicas never moves an existing pod, because a pod's
+	// indices never change. Changing this list would move nearly all of them,
+	// so it is immutable while set: remove pinning, reconcile, then re-add it
+	// with the new sequence. On a cluster with persistence, note that zonal
+	// volumes cannot follow a pod to a new zone.
+	//
+	// The list is ordered, so it is atomic rather than a set: a set list is
+	// unordered under server-side apply, which would scramble the assignment.
+	// Uniqueness is enforced by CEL for the same reason.
+	//
+	// Each entry must be a valid Kubernetes label value, because it is rendered
+	// as the value of a topology.kubernetes.io/zone nodeSelector entry. Without
+	// that constraint an entry such as "eu-west-1a!" is accepted here and then
+	// rejected when the StatefulSet is created, surfacing on the ValkeyNode
+	// rather than on the ValkeyCluster the user edited.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=63
+	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`
+	// +listType=atomic
+	Zones []string `json:"zones"`
+}
+
 // ValkeyClusterSpec defines the desired state of ValkeyCluster.
 // +kubebuilder:validation:XValidation:rule="!(has(self.persistence) && self.workloadType == 'Deployment')",message="persistence requires workloadType StatefulSet"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.persistence) || has(self.persistence)",message="persistence cannot be removed once set"
 // +kubebuilder:validation:XValidation:rule="has(oldSelf.persistence) || !has(self.persistence)",message="persistence cannot be added after creation"
 // +kubebuilder:validation:XValidation:rule="!has(self.persistence) || !has(oldSelf.persistence) || quantity(self.persistence.size).compareTo(quantity(oldSelf.persistence.size)) >= 0",message="persistence.size may only be expanded"
 // +kubebuilder:validation:XValidation:rule="!has(self.persistence) || !has(oldSelf.persistence) || ((!has(self.persistence.storageClassName) && !has(oldSelf.persistence.storageClassName)) || (has(self.persistence.storageClassName) && has(oldSelf.persistence.storageClassName) && self.persistence.storageClassName == oldSelf.persistence.storageClassName))",message="persistence.storageClassName is immutable"
+//
+// node.spread: reject primaries and pods both Required (they would render duplicate hostname DoNotSchedule constraints).
 // +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.node) || !has(self.scheduling.node.spread) || !( ((has(self.scheduling.node.spread.primaries) && has(self.scheduling.node.spread.primaries.mode)) ? self.scheduling.node.spread.primaries.mode : 'Disabled') == 'Required' && ((has(self.scheduling.node.spread.pods) && has(self.scheduling.node.spread.pods.mode)) ? self.scheduling.node.spread.pods.mode : 'Disabled') == 'Required' )",message="node.spread.primaries and node.spread.pods cannot both be Required: they render duplicate kubernetes.io/hostname DoNotSchedule topology spread constraints"
+//
+// node.spread: reject primaries and pods both Preferred (they would render duplicate hostname ScheduleAnyway constraints).
 // +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.node) || !has(self.scheduling.node.spread) || !( ((has(self.scheduling.node.spread.primaries) && has(self.scheduling.node.spread.primaries.mode)) ? self.scheduling.node.spread.primaries.mode : 'Disabled') == 'Preferred' && ((has(self.scheduling.node.spread.pods) && has(self.scheduling.node.spread.pods.mode)) ? self.scheduling.node.spread.pods.mode : 'Disabled') == 'Preferred' )",message="node.spread.primaries and node.spread.pods cannot both be Preferred: they render duplicate kubernetes.io/hostname ScheduleAnyway topology spread constraints (set one to Disabled or Required)"
+//
+// node.spread: reject a user hostname DoNotSchedule TSC that collides with a Required primaries/pods spread.
 // +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.topologySpreadConstraints) || !self.scheduling.topologySpreadConstraints.exists(c, c.topologyKey == 'kubernetes.io/hostname' && c.whenUnsatisfiable == 'DoNotSchedule') || !has(self.scheduling.node) || !has(self.scheduling.node.spread) || !( ((has(self.scheduling.node.spread.primaries) && has(self.scheduling.node.spread.primaries.mode)) ? self.scheduling.node.spread.primaries.mode : 'Disabled') == 'Required' || ((has(self.scheduling.node.spread.pods) && has(self.scheduling.node.spread.pods.mode)) ? self.scheduling.node.spread.pods.mode : 'Disabled') == 'Required' )",message="a topologySpreadConstraints entry on kubernetes.io/hostname with whenUnsatisfiable DoNotSchedule collides with node.spread.primaries or node.spread.pods set to Required, which render the same hostname DoNotSchedule constraint: set that node.spread mode to Disabled, or remove the passthrough constraint"
+//
+// node.spread: reject a user hostname ScheduleAnyway TSC that collides with a Preferred primaries/pods spread.
 // +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.topologySpreadConstraints) || !self.scheduling.topologySpreadConstraints.exists(c, c.topologyKey == 'kubernetes.io/hostname' && c.whenUnsatisfiable == 'ScheduleAnyway') || !has(self.scheduling.node) || !has(self.scheduling.node.spread) || !( ((has(self.scheduling.node.spread.primaries) && has(self.scheduling.node.spread.primaries.mode)) ? self.scheduling.node.spread.primaries.mode : 'Disabled') == 'Preferred' || ((has(self.scheduling.node.spread.pods) && has(self.scheduling.node.spread.pods.mode)) ? self.scheduling.node.spread.pods.mode : 'Disabled') == 'Preferred' )",message="a topologySpreadConstraints entry on kubernetes.io/hostname with whenUnsatisfiable ScheduleAnyway collides with node.spread.primaries or node.spread.pods set to Preferred, which render the same hostname ScheduleAnyway constraint: set that node.spread mode to Disabled or Required, or remove the passthrough constraint"
+//
+// zone.spread: reject more than one of shard/primaries/pods Required (they would render duplicate zone DoNotSchedule constraints).
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.zone) || !has(self.scheduling.zone.spread) || !( (((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Required' && ((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Required') || (((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Required' && ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Required') || (((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Required' && ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Required') )",message="at most one of zone.spread.shard, zone.spread.primaries, zone.spread.pods may be Required: they render duplicate topology.kubernetes.io/zone DoNotSchedule topology spread constraints"
+//
+// zone.spread: reject more than one of shard/primaries/pods Preferred (they would render duplicate zone ScheduleAnyway constraints).
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.zone) || !has(self.scheduling.zone.spread) || !( (((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Preferred' && ((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Preferred') || (((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Preferred' && ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Preferred') || (((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Preferred' && ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Preferred') )",message="at most one of zone.spread.shard, zone.spread.primaries, zone.spread.pods may be Preferred: they render duplicate topology.kubernetes.io/zone ScheduleAnyway topology spread constraints (set one to Disabled or Required)"
+//
+// zone.spread: reject a user zone DoNotSchedule TSC that collides with a Required shard/primaries/pods spread.
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.topologySpreadConstraints) || !self.scheduling.topologySpreadConstraints.exists(c, c.topologyKey == 'topology.kubernetes.io/zone' && c.whenUnsatisfiable == 'DoNotSchedule') || !has(self.scheduling.zone) || !has(self.scheduling.zone.spread) || !( ((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Required' || ((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Required' || ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Required' )",message="a topologySpreadConstraints entry on topology.kubernetes.io/zone with whenUnsatisfiable DoNotSchedule collides with zone.spread.shard, primaries, or pods set to Required, which render the same zone DoNotSchedule constraint: set that zone.spread mode to Disabled, or remove the passthrough constraint"
+//
+// zone.spread: reject a user zone ScheduleAnyway TSC that collides with a Preferred shard/primaries/pods spread.
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.topologySpreadConstraints) || !self.scheduling.topologySpreadConstraints.exists(c, c.topologyKey == 'topology.kubernetes.io/zone' && c.whenUnsatisfiable == 'ScheduleAnyway') || !has(self.scheduling.zone) || !has(self.scheduling.zone.spread) || !( ((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Preferred' || ((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Preferred' || ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Preferred' )",message="a topologySpreadConstraints entry on topology.kubernetes.io/zone with whenUnsatisfiable ScheduleAnyway collides with zone.spread.shard, primaries, or pods set to Preferred, which render the same zone ScheduleAnyway constraint: set that zone.spread mode to Disabled or Required, or remove the passthrough constraint"
+//
+// zone.pinning: reject pinning combined with any non-Disabled zone spread (pinning already fixes each pod's zone).
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.zone) || !has(self.scheduling.zone.pinning) || !has(self.scheduling.zone.spread) || ( ((has(self.scheduling.zone.spread.shard) && has(self.scheduling.zone.spread.shard.mode)) ? self.scheduling.zone.spread.shard.mode : 'Disabled') == 'Disabled' && ((has(self.scheduling.zone.spread.primaries) && has(self.scheduling.zone.spread.primaries.mode)) ? self.scheduling.zone.spread.primaries.mode : 'Disabled') == 'Disabled' && ((has(self.scheduling.zone.spread.pods) && has(self.scheduling.zone.spread.pods.mode)) ? self.scheduling.zone.spread.pods.mode : 'Disabled') == 'Disabled' )",message="zone.pinning cannot be combined with a non-Disabled zone.spread.shard, primaries, or pods: pinning already assigns every pod a fixed zone, which a zone spread constraint can contradict"
+//
+// zone.pinning: the zone list is immutable while set (changing it reassigns nearly every pod); removal and re-adding are allowed.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.scheduling) || !has(oldSelf.scheduling.zone) || !has(oldSelf.scheduling.zone.pinning) || !has(self.scheduling) || !has(self.scheduling.zone) || !has(self.scheduling.zone.pinning) || self.scheduling.zone.pinning.zones == oldSelf.scheduling.zone.pinning.zones",message="zone.pinning.zones is immutable while set: changing it reassigns nearly every pod. Remove zone.pinning, reconcile, then re-add it with the new list"
+//
+// zone.pinning: reject a passthrough nodeSelector that sets the zone key the pinning render owns.
+// +kubebuilder:validation:XValidation:rule="!has(self.scheduling) || !has(self.scheduling.zone) || !has(self.scheduling.zone.pinning) || !has(self.scheduling.nodeSelector) || !('topology.kubernetes.io/zone' in self.scheduling.nodeSelector)",message="scheduling.nodeSelector cannot set topology.kubernetes.io/zone while zone.pinning is set: pinning renders that key itself, and the curated value would overwrite yours"
+//
+// discovery: Hostname announce needs stable StatefulSet pod names.
+// +kubebuilder:validation:XValidation:rule="!has(self.networking) || !has(self.networking.discovery) || !has(self.networking.discovery.preferredEndpointType) || self.networking.discovery.preferredEndpointType != 'Hostname' || !has(self.workloadType) || self.workloadType == 'StatefulSet'",message="networking.discovery.preferredEndpointType Hostname requires workloadType StatefulSet (or omit workloadType for the StatefulSet default)"
 type ValkeyClusterSpec struct {
 
 	// Override the default Valkey image
@@ -261,9 +376,10 @@ type ValkeyClusterSpec struct {
 	// +optional
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 
-	// TLS configuration for the cluster
+	// Networking groups how clients and peers reach cluster nodes (TLS,
+	// in-cluster discovery announce, and later external access).
 	// +optional
-	TLS *TLSConfig `json:"tls,omitempty"`
+	Networking *NetworkingSpec `json:"networking,omitempty"`
 
 	// PodDisruptionBudget configures the operator-managed PodDisruptionBudget(s)
 	// for this cluster. When unset, the operator applies the default (Cluster) mode.
@@ -274,6 +390,54 @@ type ValkeyClusterSpec struct {
 	// When set, this overrides the default PodSecurityContext.
 	// +optional
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+}
+
+// PreferredEndpointType mirrors valkey's cluster-preferred-endpoint-type directive.
+// +kubebuilder:validation:Enum=IP;Hostname
+type PreferredEndpointType string
+
+const (
+	// PreferredEndpointTypeIP announces pod IPs (default).
+	PreferredEndpointTypeIP PreferredEndpointType = "IP"
+	// PreferredEndpointTypeHostname announces stable per-pod DNS names under the
+	// cluster headless Service.
+	PreferredEndpointTypeHostname PreferredEndpointType = "Hostname"
+
+	// DefaultClusterDomain matches kubelet --cluster-domain when the CR omits
+	// networking.clusterDomain. Announce and TLS FQDNs append a trailing dot.
+	DefaultClusterDomain = "cluster.local"
+)
+
+// NetworkingSpec groups connectivity configuration for the cluster.
+type NetworkingSpec struct {
+	// ClusterDomain is the DNS suffix kubelet publishes Service DNS under
+	// (kubelet --cluster-domain). Used when building Hostname announce FQDNs
+	// and the default TLS ServerName. Must match the cluster. Default cluster.local.
+	// +kubebuilder:default="cluster.local"
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\.?$`
+	// +optional
+	ClusterDomain string `json:"clusterDomain,omitempty"`
+
+	// Discovery configures in-cluster endpoint announcement after CLUSTER SLOTS.
+	// +optional
+	Discovery *DiscoverySpec `json:"discovery,omitempty"`
+
+	// TLS configuration for the cluster.
+	// +optional
+	TLS *TLSSpec `json:"tls,omitempty"`
+}
+
+// DiscoverySpec configures how nodes announce themselves for in-cluster clients.
+type DiscoverySpec struct {
+	// PreferredEndpointType selects IP (default) or Hostname announcement.
+	// Hostname uses per-pod DNS under the cluster headless Service
+	// (<pod>.<headless>.<namespace>.svc.<clusterDomain>) and requires
+	// workloadType StatefulSet (or the default).
+	// +kubebuilder:default=IP
+	// +optional
+	PreferredEndpointType PreferredEndpointType `json:"preferredEndpointType,omitempty"`
 }
 
 // TLSAuthClients controls how Valkey treats incoming client TLS certificates.
@@ -345,13 +509,25 @@ func (input TLSAuthClientsUser) AuthClientsUserDirective() (string, bool) {
 type TLSConfig struct {
 	// Certificate is a reference to a Kubernetes secret that contains the certificate and private key for enabling TLS.
 	// The referenced secret should contain the following:
-	//
-	// - `ca.crt`: The certificate authority.
-	// - `tls.crt`: The certificate (or a chain).
-	// - `tls.key`: The private key to the first certificate in the certificate chain.
-	Certificate CertificateRef `json:"certificate,omitempty"`
+=======
 
-	// AuthClients controls whether clients must authenticate with a TLS
+
+// TLSSpec defines the TLS configuration for ValkeyCluster.
+type TLSSpec struct {
+	// ServerName is the hostname used for TLS verification when the operator
+	// connects to a node by pod IP. When unset, the operator uses
+	// valkey-<name>.<namespace>.svc.<clusterDomain> (default cluster.local).
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="!format.dns1123Subdomain().validate(self).hasValue()",message="must be a valid DNS-1123 subdomain (lowercase alphanumerics, '-' and '.', starting and ending with an alphanumeric)"
+	ServerName string `json:"serverName,omitempty"`
+
+	// Certificates holds the certificate slots used by the cluster.
+	// +kubebuilder:validation:Required
+	Certificates TLSCertificates `json:"certificates"`
+  
+  // AuthClients controls whether clients must authenticate with a TLS
 	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
 	// and unauthenticated clients, and `Disabled` turns client certificate
 	// processing off entirely.
@@ -369,10 +545,59 @@ type TLSConfig struct {
 	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`
 }
 
-// CertificateRef defines the certificate reference for ValkeyCluster.
-type CertificateRef struct {
+// TLSCertificates groups the certificate slots for a ValkeyCluster. Today
+// `server` is the only slot; the trust-source, outbound-identity and
+// control-plane-identity slots land in later phases of #360.
+type TLSCertificates struct {
+	// Server is the node identity presented to clients and peers, and the
+	// trust root for the cluster. The referenced secret must contain:
+	//
+	// - `ca.crt`: The certificate authority.
+	// - `tls.crt`: The certificate (or a chain).
+	// - `tls.key`: The private key to the first certificate in the certificate chain.
+	// +kubebuilder:validation:Required
+	Server CertificateSource `json:"server"`
+}
+
+// GetTLS returns the cluster TLS config from spec.networking.tls, or nil.
+func (c *ValkeyCluster) GetTLS() *TLSSpec {
+	if c == nil || c.Spec.Networking == nil {
+		return nil
+	}
+	return c.Spec.Networking.TLS
+}
+
+// GetPreferredEndpointType returns discovery preferred endpoint type, default IP.
+func (c *ValkeyCluster) GetPreferredEndpointType() PreferredEndpointType {
+	if c == nil || c.Spec.Networking == nil || c.Spec.Networking.Discovery == nil ||
+		c.Spec.Networking.Discovery.PreferredEndpointType == "" {
+		return PreferredEndpointTypeIP
+	}
+	return c.Spec.Networking.Discovery.PreferredEndpointType
+}
+
+// GetClusterDomain returns networking.clusterDomain, default cluster.local.
+func (c *ValkeyCluster) GetClusterDomain() string {
+	if c == nil || c.Spec.Networking == nil || c.Spec.Networking.ClusterDomain == "" {
+		return DefaultClusterDomain
+	}
+	return c.Spec.Networking.ClusterDomain
+}
+
+// PrefersHostnameAnnounce reports whether discovery announces hostnames.
+func (c *ValkeyCluster) PrefersHostnameAnnounce() bool {
+	return c.GetPreferredEndpointType() == PreferredEndpointTypeHostname
+}
+
+// CertificateSource references a certificate and its private key. Today the
+// only source is a Secret; future sources (cert-manager, operator-generated)
+// are added as sibling fields forming a union where exactly one may be set.
+type CertificateSource struct {
 	// SecretName is the name of the secret.
-	SecretName string `json:"secretName,omitempty"`
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	SecretName string `json:"secretName"`
 }
 
 type ExporterSpec struct {
@@ -384,12 +609,26 @@ type ExporterSpec struct {
 	// +optional
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
-	// Enable or disable the exporter sidecar container
-	Enabled bool `json:"enabled,omitempty"`
+	// Enable or disable the exporter sidecar container. Unset means enabled
+	// on a ValkeyCluster; a ValkeyNode runs the sidecar only on an explicit
+	// true, which the cluster controller propagates when enabled.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// Override the SecurityContext applied to the exporter sidecar container.
 	// +optional
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+
+	// Additional cmdline arguments passed to exporter sidecar container.
+	// +optional
+	Args []string `json:"args,omitempty"`
+}
+
+// ExporterEnabled resolves the cluster-level default: a nil
+// spec.exporter.enabled means enabled, so overriding any other exporter
+// field keeps the sidecar.
+func (s ValkeyClusterSpec) ExporterEnabled() bool {
+	return s.Exporter.Enabled == nil || *s.Exporter.Enabled
 }
 
 // ValkeyClusterStatus defines the observed state of ValkeyCluster.
@@ -441,35 +680,44 @@ const (
 	// considers risky, for example a terminationGracePeriodSeconds too short for
 	// graceful failover.
 	ConditionConfigurationWarning = "ConfigurationWarning"
+	// ConditionTLSEndpointWarning flags TLS with IP announce (including default
+	// IP). Non-blocking: Ready may stay True. Prefer Hostname announce with DNS SANs.
+	ConditionTLSEndpointWarning = "TLSEndpointWarning"
 )
 
 const (
 	// Common reasons for conditions
-	ReasonInitializing             = "Initializing"
-	ReasonReconciling              = "Reconciling"
-	ReasonClusterHealthy           = "ClusterHealthy"
-	ReasonServiceError             = "ServiceError"
-	ReasonConfigMapError           = "ConfigMapError"
-	ReasonValkeyNodeError          = "ValkeyNodeError"
-	ReasonValkeyNodeListError      = "ValkeyNodeListError"
-	ReasonAddingNodes              = "AddingNodes"
-	ReasonNodeAddFailed            = "NodeAddFailed"
-	ReasonMissingShards            = "MissingShards"
-	ReasonMissingReplicas          = "MissingReplicas"
-	ReasonReconcileComplete        = "ReconcileComplete"
-	ReasonTopologyComplete         = "TopologyComplete"
-	ReasonAllSlotsAssigned         = "AllSlotsAssigned"
-	ReasonSlotsUnassigned          = "SlotsUnassigned"
-	ReasonGracePeriodTooShort      = "GracePeriodTooShort"
-	ReasonPrimaryLost              = "PrimaryLost"
-	ReasonNoSlots                  = "NoSlotsAvailable"
-	ReasonRebalancingSlots         = "RebalancingSlots"
-	ReasonRebalanceFailed          = "RebalanceFailed"
-	ReasonUsersAclError            = "UsersACLError"
-	ReasonUpdatingNodes            = "UpdatingNodes"
-	ReasonSystemUsersAclError      = "SystemUsersACLError"
-	ReasonPodDisruptionBudgetError = "PodDisruptionBudgetError"
-	ReasonPodUnschedulable         = "PodUnschedulable"
+	ReasonInitializing                  = "Initializing"
+	ReasonReconciling                   = "Reconciling"
+	ReasonClusterHealthy                = "ClusterHealthy"
+	ReasonServiceError                  = "ServiceError"
+	ReasonConfigMapError                = "ConfigMapError"
+	ReasonValkeyNodeError               = "ValkeyNodeError"
+	ReasonValkeyNodeListError           = "ValkeyNodeListError"
+	ReasonAddingNodes                   = "AddingNodes"
+	ReasonNodeAddFailed                 = "NodeAddFailed"
+	ReasonMissingShards                 = "MissingShards"
+	ReasonMissingReplicas               = "MissingReplicas"
+	ReasonReconcileComplete             = "ReconcileComplete"
+	ReasonTopologyComplete              = "TopologyComplete"
+	ReasonAllSlotsAssigned              = "AllSlotsAssigned"
+	ReasonSlotsUnassigned               = "SlotsUnassigned"
+	ReasonGracePeriodTooShort           = "GracePeriodTooShort"
+	ReasonPrimaryLost                   = "PrimaryLost"
+	ReasonNoSlots                       = "NoSlotsAvailable"
+	ReasonRebalancingSlots              = "RebalancingSlots"
+	ReasonRebalanceFailed               = "RebalanceFailed"
+	ReasonACLApplyFailed                = "ACLApplyFailed"
+	ReasonUsersAclError                 = "UsersACLError"
+	ReasonUpdatingNodes                 = "UpdatingNodes"
+	ReasonSystemUsersAclError           = "SystemUsersACLError"
+	ReasonPodDisruptionBudgetError      = "PodDisruptionBudgetError"
+	ReasonPodUnschedulable              = "PodUnschedulable"
+	ReasonUnsupportedConfigDirective    = "UnsupportedConfigDirective"
+	ReasonMultipleConfigurationWarnings = "MultipleConfigurationWarnings"
+	// ReasonTLSWithIPAnnounce is used with ConditionTLSEndpointWarning when TLS
+	// is enabled and preferred endpoint type is IP (default or explicit).
+	ReasonTLSWithIPAnnounce = "TLSWithIPAnnounce"
 )
 
 // +kubebuilder:object:root=true

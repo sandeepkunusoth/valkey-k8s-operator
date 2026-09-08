@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	valkeyiov1alpha1 "github.com/valkey-io/valkey-operator/api/v1alpha1"
 	"github.com/valkey-io/valkey-operator/internal/valkey"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -115,89 +116,136 @@ func TestFindFailoverShard(t *testing.T) {
 	})
 }
 
-func TestNodeRequiresRoll(t *testing.T) {
-	t.Run("different spec with pod IP requires roll", func(t *testing.T) {
-		current := &valkeyiov1alpha1.ValkeyNode{}
-		current.Spec.Image = "valkey:8.1"
-		current.Status.PodIP = "10.0.0.1"
-		desired := &valkeyiov1alpha1.ValkeyNode{}
-		desired.Spec.Image = "valkey:8.2"
-		assert.True(t, nodeRequiresRoll(current, desired))
-	})
-
-	t.Run("same spec does not require roll", func(t *testing.T) {
-		current := &valkeyiov1alpha1.ValkeyNode{}
-		current.Spec.Image = "valkey:8.1"
-		current.Status.PodIP = "10.0.0.1"
-		desired := &valkeyiov1alpha1.ValkeyNode{}
-		desired.Spec.Image = "valkey:8.1"
-		assert.False(t, nodeRequiresRoll(current, desired))
-	})
-
-	t.Run("different spec but no pod IP does not require roll", func(t *testing.T) {
-		current := &valkeyiov1alpha1.ValkeyNode{}
-		current.Spec.Image = "valkey:8.1"
-		desired := &valkeyiov1alpha1.ValkeyNode{}
-		desired.Spec.Image = "valkey:8.2"
-		assert.False(t, nodeRequiresRoll(current, desired))
-	})
-}
-
-func TestNodeRequiresRollIgnoresConfig(t *testing.T) {
-	withConfig := func(policy string) *valkeyiov1alpha1.ValkeyNode {
-		return &valkeyiov1alpha1.ValkeyNode{
-			Spec: valkeyiov1alpha1.ValkeyNodeSpec{
-				Image:            "valkey:8",
-				ServerConfigHash: "abc",
-				Config:           map[string]string{"maxmemory-policy": policy},
-			},
-		}
-	}
-
-	t.Run("does not require a roll when only Config differs", func(t *testing.T) {
-		current := withConfig("allkeys-lru")
-		current.Status.PodIP = "10.0.0.1"
-		desired := withConfig("volatile-lru")
-		assert.False(t, nodeRequiresRoll(current, desired))
-	})
-
-	t.Run("requires a roll when a non-Config spec field differs", func(t *testing.T) {
-		current := &valkeyiov1alpha1.ValkeyNode{
-			Spec:   valkeyiov1alpha1.ValkeyNodeSpec{Image: "valkey:8"},
-			Status: valkeyiov1alpha1.ValkeyNodeStatus{PodIP: "10.0.0.1"},
-		}
-		desired := &valkeyiov1alpha1.ValkeyNode{
-			Spec: valkeyiov1alpha1.ValkeyNodeSpec{Image: "valkey:9"},
-		}
-		assert.True(t, nodeRequiresRoll(current, desired))
-	})
-}
-
-func TestAnyNodeRequiresRoll(t *testing.T) {
+func TestAnyNodeRequiresFailoverAwareRoll(t *testing.T) {
 	cluster := &valkeyiov1alpha1.ValkeyCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec:       valkeyiov1alpha1.ValkeyClusterSpec{Shards: 1, Replicas: 0},
 	}
-	const configHash = "abc123"
 
-	// steadyStateNode returns the node the cluster would build for (0,0) in a
-	// settled cluster: matching spec, the current config hash, and a pod IP.
 	steadyStateNode := func() valkeyiov1alpha1.ValkeyNode {
 		n := buildClusterValkeyNode(cluster, 0, 0)
-		n.Spec.ServerConfigHash = configHash
+		require.NoError(t, setDesiredWorkloadRevision(n))
 		n.Status.PodIP = "10.0.0.1"
 		return *n
 	}
 
-	t.Run("settled node with matching config hash does not require roll", func(t *testing.T) {
-		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{steadyStateNode()}}
-		assert.False(t, anyNodeRequiresRoll(cluster, nodes, configHash))
+	t.Run("settled node does not need failover-aware roll", func(t *testing.T) {
+		n := steadyStateNode()
+		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
+		live := map[string]string{n.Name: n.Spec.WorkloadRevision}
+		assert.False(t, anyNodeRequiresFailoverAwareRoll(cluster, nodes, live))
 	})
 
-	t.Run("node with stale config hash requires roll", func(t *testing.T) {
+	t.Run("empty WorkloadRevision backfill when live matches does not need failover-aware roll", func(t *testing.T) {
 		n := steadyStateNode()
-		n.Spec.ServerConfigHash = "stale"
+		authorized := n.Spec.WorkloadRevision
+		n.Spec.WorkloadRevision = ""
 		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
-		assert.True(t, anyNodeRequiresRoll(cluster, nodes, configHash))
+		live := map[string]string{n.Name: authorized}
+		assert.False(t, anyNodeRequiresFailoverAwareRoll(cluster, nodes, live))
+	})
+
+	t.Run("empty WorkloadRevision with live template mismatch needs failover-aware roll", func(t *testing.T) {
+		n := steadyStateNode()
+		n.Spec.WorkloadRevision = ""
+		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
+		// Live still on an older template (e.g. ACL hash change before backfill).
+		live := map[string]string{n.Name: "old-live-template-hash"}
+		assert.True(t, anyNodeRequiresFailoverAwareRoll(cluster, nodes, live))
+	})
+
+	t.Run("cluster config change needs failover-aware roll", func(t *testing.T) {
+		n := steadyStateNode()
+		changed := cluster.DeepCopy()
+		changed.Spec.Config = map[string]string{"appendfsync": "always"}
+		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
+		// Live still runs the template rendered before the config change.
+		live := map[string]string{n.Name: n.Spec.WorkloadRevision}
+		assert.True(t, anyNodeRequiresFailoverAwareRoll(changed, nodes, live))
+	})
+
+	t.Run("stale WorkloadRevision with unchanged live template does not need failover-aware roll", func(t *testing.T) {
+		// The #401 false-positive class: the stored spec differs in shape only
+		// (here: a stale revision string), but the rendered template is unchanged.
+		n := steadyStateNode()
+		authorized := n.Spec.WorkloadRevision
+		n.Spec.WorkloadRevision = "not-the-real-hash"
+		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
+		live := map[string]string{n.Name: authorized}
+		assert.False(t, anyNodeRequiresFailoverAwareRoll(cluster, nodes, live))
+	})
+
+	t.Run("no live workload does not need failover-aware roll", func(t *testing.T) {
+		n := steadyStateNode()
+		n.Spec.WorkloadRevision = "not-the-real-hash"
+		nodes := &valkeyiov1alpha1.ValkeyNodeList{Items: []valkeyiov1alpha1.ValkeyNode{n}}
+		assert.False(t, anyNodeRequiresFailoverAwareRoll(cluster, nodes, nil))
+	})
+}
+
+func TestNeedsProactiveFailoverForRoll(t *testing.T) {
+	base := func() (*valkeyiov1alpha1.ValkeyNode, *valkeyiov1alpha1.ValkeyNode) {
+		current := &valkeyiov1alpha1.ValkeyNode{
+			Spec:   valkeyiov1alpha1.ValkeyNodeSpec{Image: "valkey:8", WorkloadRevision: "rev-a"},
+			Status: valkeyiov1alpha1.ValkeyNodeStatus{PodIP: "10.0.0.1"},
+		}
+		desired := current.DeepCopy()
+		return current, desired
+	}
+
+	t.Run("live matches desired template does not need failover", func(t *testing.T) {
+		current, desired := base()
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
+	})
+
+	t.Run("stale current spec with unchanged template does not need failover", func(t *testing.T) {
+		// The #401 class: the stored spec encodes differently from desired
+		// (e.g. bool→*bool conversion) but renders the same template.
+		current, desired := base()
+		current.Spec.Image = "stale-encoding"
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
+	})
+
+	t.Run("live differs from desired template needs failover", func(t *testing.T) {
+		current, desired := base()
+		desired.Spec.WorkloadRevision = "rev-b"
+		assert.True(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
+	})
+
+	t.Run("no running pod does not need failover", func(t *testing.T) {
+		current, desired := base()
+		current.Status.PodIP = ""
+		desired.Spec.WorkloadRevision = "rev-b"
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
+	})
+
+	t.Run("unknown live template does not need failover", func(t *testing.T) {
+		// No live workload means the coming update creates rather than rolls.
+		current, desired := base()
+		desired.Spec.WorkloadRevision = "rev-b"
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, ""))
+	})
+
+	t.Run("empty revision backfill when live matches does not need failover", func(t *testing.T) {
+		current, desired := base()
+		current.Spec.WorkloadRevision = ""
+		desired.Spec.WorkloadRevision = "rev-b"
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, "rev-b"))
+	})
+
+	t.Run("workload type swap needs failover even with identical template", func(t *testing.T) {
+		current, desired := base()
+		current.Spec.WorkloadType = valkeyiov1alpha1.WorkloadTypeDeployment
+		desired.Spec.WorkloadType = valkeyiov1alpha1.WorkloadTypeStatefulSet
+		assert.True(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
+	})
+
+	t.Run("defaulted workload type is not a swap", func(t *testing.T) {
+		// "" means StatefulSet (CRD default); ""→"StatefulSet" is a spec-shape
+		// change, not a workload swap.
+		current, desired := base()
+		current.Spec.WorkloadType = ""
+		desired.Spec.WorkloadType = valkeyiov1alpha1.WorkloadTypeStatefulSet
+		assert.False(t, needsProactiveFailoverForRoll(current, desired, "rev-a"))
 	})
 }
