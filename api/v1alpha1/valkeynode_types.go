@@ -184,8 +184,9 @@ type NodeTLSSpec struct {
 
 	// AuthClientsUser configures how Valkey maps an authenticated client
 	// certificate to an ACL user. Set to `CN` to use the certificate's Common
-	// Name, or `URI` to use the first matching URI from the certificate's Subject
-	// Alternative Name (SAN). Defaults to `Disabled`. Requires Valkey >= 9.0.0.
+	// Name (requires Valkey >= 9.0), or `URI` to use the first matching URI from the certificate's Subject
+	// Alternative Name (SAN) (requires Valkey >= 9.1).
+	// Defaults to `Disabled`, which leaves the directive unset.
 	// +kubebuilder:default=Disabled
 	// +optional
 	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`

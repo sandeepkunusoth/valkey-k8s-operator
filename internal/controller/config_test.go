@@ -94,14 +94,14 @@ var _ = Describe("TLS client auth admission rules", Label("tls", "cel"), func() 
 		cluster := newCluster("cel-disabled-cn", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserCN)
 		err := k8sClient.Create(ctx, cluster)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("authClientsUser=CN"))
+		Expect(err.Error()).To(ContainSubstring("authClientsUser has no effect when authClients is Disabled"))
 	})
 
 	It("rejects authClients=Disabled with authClientsUser=URI", func() {
 		cluster := newCluster("cel-disabled-uri", valkeyiov1alpha1.TLSAuthClientsDisabled, valkeyiov1alpha1.TLSAuthClientsUserURI)
 		err := k8sClient.Create(ctx, cluster)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("authClientsUser=CN/URI"))
+		Expect(err.Error()).To(ContainSubstring("authClientsUser has no effect when authClients is Disabled"))
 	})
 
 	It("accepts authClients=Required with authClientsUser=CN", func() {
