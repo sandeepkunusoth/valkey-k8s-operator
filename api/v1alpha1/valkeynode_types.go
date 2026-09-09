@@ -158,6 +158,7 @@ type ValkeyNodeSpec struct {
 // ValkeyCluster TLSSpec: the cluster API expresses user intent whereas this
 // API is the resolved view the node controller renders into valkey.conf and
 // volume mounts.
+// +kubebuilder:validation:XValidation:rule="!(has(self.authClients) && self.authClients == 'Disabled' && has(self.authClientsUser) && self.authClientsUser != 'Disabled')",message="authClientsUser has no effect when authClients is Disabled: set authClients to Optional or Required to enable authClientsUser"
 type NodeTLSSpec struct {
 	// ServerName is the hostname used for TLS verification when connecting
 	// to the pod IP. For cluster-owned nodes this is

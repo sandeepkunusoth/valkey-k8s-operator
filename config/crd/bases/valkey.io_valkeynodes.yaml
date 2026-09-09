@@ -3230,6 +3230,11 @@ spec:
                 required:
                 - certificates
                 type: object
+                x-kubernetes-validations:
+                - message: 'authClientsUser has no effect when authClients is Disabled:
+                    set authClients to Optional or Required to enable authClientsUser'
+                  rule: '!(has(self.authClients) && self.authClients == ''Disabled''
+                    && has(self.authClientsUser) && self.authClientsUser != ''Disabled'')'
               tolerations:
                 description: Tolerations defines the pod tolerations.
                 items:

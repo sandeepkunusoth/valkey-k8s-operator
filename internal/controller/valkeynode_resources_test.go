@@ -584,6 +584,7 @@ func TestBuildValkeyNodeConfigMap_WithClientCertAuth(t *testing.T) {
 		name            string
 		authClients     valkeyv1.TLSAuthClients
 		authClientsUser valkeyv1.TLSAuthClientsUser
+		image           string
 		want            []string
 		notWant         []string
 	}{
@@ -597,6 +598,7 @@ func TestBuildValkeyNodeConfigMap_WithClientCertAuth(t *testing.T) {
 			name:            "required with URI mapping",
 			authClients:     valkeyv1.TLSAuthClientsRequired,
 			authClientsUser: valkeyv1.TLSAuthClientsUserURI,
+			image:           "valkey/valkey:9.1.0",
 			want:            []string{"tls-auth-clients yes", "tls-auth-clients-user URI"},
 		},
 		{
@@ -609,6 +611,9 @@ func TestBuildValkeyNodeConfigMap_WithClientCertAuth(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			node := newTestValkeyNode("mynode", "test-ns")
+			if tc.image != "" {
+				node.Spec.Image = tc.image
+			}
 			node.Spec.TLS = &valkeyv1.NodeTLSSpec{
 				Certificates: valkeyv1.NodeTLSCertificates{
 					Server: valkeyv1.NodeCertificateRef{SecretName: "tls-secret"},
