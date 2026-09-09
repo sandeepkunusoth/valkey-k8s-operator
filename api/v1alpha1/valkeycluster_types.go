@@ -465,11 +465,11 @@ var tlsAuthClientsDirective = map[TLSAuthClients]string{
 	TLSAuthClientsDisabled: "no",
 }
 
-// AuthClientsDirective returns the `tls-auth-clients` value for input, and whether
-// the input is a value the operator knows how to render.
+// AuthClientsDirective returns the `tls-auth-clients` value for input, and
+// whether the input is a value the operator knows how to render.
 func (input TLSAuthClients) AuthClientsDirective() (string, bool) {
-	v, ok := tlsAuthClientsDirective[input]
-	return v, ok
+	directive, ok := tlsAuthClientsDirective[input]
+	return directive, ok
 }
 
 // TLSAuthClientsUser controls how Valkey maps an authenticated client
@@ -480,31 +480,34 @@ type TLSAuthClientsUser string
 const (
 	// TLSAuthClientsUserCN maps the certificate's Common Name (CN) to an
 	// ACL username. Pair with `AuthClients: Required` to enforce mTLS.
+	// Requires Valkey >= 9.0.
 	TLSAuthClientsUserCN TLSAuthClientsUser = "CN"
 	// TLSAuthClientsUserURI maps the first URI from the certificate's
 	// Subject Alternative Name (SAN) that matches a Valkey ACL username.
+	// Requires Valkey >= 9.1.
 	TLSAuthClientsUserURI TLSAuthClientsUser = "URI"
 	// TLSAuthClientsUserDisabled disables certificate-to-user mapping (default).
 	TLSAuthClientsUserDisabled TLSAuthClientsUser = "Disabled"
 )
 
-// tlsAuthClientsUserDirective maps the valkey CRD API spec field onto the values the
+// tlsAuthClientsUserDirective maps the valkey CRD API enum onto the values the
 // `tls-auth-clients-user` directive accepts.
+
 var tlsAuthClientsUserDirective = map[TLSAuthClientsUser]string{
-	TLSAuthClientsUserCN:       "CN",
-	TLSAuthClientsUserURI:      "URI",
-	TLSAuthClientsUserDisabled: "off",
+	TLSAuthClientsUserCN:  "CN",
+	TLSAuthClientsUserURI: "URI",
 }
 
 // AuthClientsUserDirective returns the `tls-auth-clients-user` value for input,
-// and whether input is a value the operator knows how to render.
+// and whether the directive should be renddered at all. Disabled and unset both
+// return false, leaving Valkey on its own default of off.
 func (input TLSAuthClientsUser) AuthClientsUserDirective() (string, bool) {
-	v, ok := tlsAuthClientsUserDirective[input]
-	return v, ok
+	directive, ok := tlsAuthClientsUserDirective[input]
+	return directive, ok
 }
 
 // TLSSpec defines the TLS configuration for ValkeyCluster.
-// +kubebuilder:validation:XValidation:rule="self.authClients != 'Disabled' || !has(self.authClientsUser) || self.authClientsUser == 'Disabled'",message="authClientsUser=CN/URI requires authClients to be Optional or Required"
+// +kubebuilder:validation:XValidation:rule="!(has(self.authClients) && self.authClients == 'Disabled' && has(self.authClientsUser) && self.authClientsUser != 'Disabled')",message="authClientsUser has no effect when authClients is Disabled: set authClients to Optional or Required to enable authClientsUser"
 type TLSSpec struct {
 	// ServerName is the hostname used for TLS verification when the operator
 	// connects to a node by pod IP. When unset, the operator uses
@@ -530,8 +533,9 @@ type TLSSpec struct {
 
 	// AuthClientsUser configures how Valkey maps an authenticated client
 	// certificate to an ACL user. Set to `CN` to use the certificate's Common
-	// Name, or `URI` to use the first matching URI from the certificate's Subject
-	// Alternative Name (SAN). Defaults to `Disabled`. Requires Valkey >= 9.0.0.
+	// Name (requires Valkey >= 9.0), or `URI` to use the first matching URI from the certificate's Subject
+	// Alternative Name (SAN) (requires Valkey >= 9.1).
+	// Defaults to `Disabled`, which leaves the directive unset.
 	// +kubebuilder:default=Disabled
 	// +optional
 	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`

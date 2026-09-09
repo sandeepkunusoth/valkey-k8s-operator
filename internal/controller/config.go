@@ -54,6 +54,8 @@ var versionGatedConfig = map[string]*semver.Version{
 	"tls-auto-reload-interval": semver.MustParse("9.1.0-rc1"),
 }
 
+var tlsAuthClientsUserURIMinVersion = semver.MustParse("9.1.0")
+
 //go:embed scripts/*
 var scripts embed.FS
 var scriptsHash string
@@ -66,7 +68,7 @@ func GetServerConfigMapName(clusterName string) string {
 // cluster and standalone ValkeyNode config paths.
 //
 //nolint:goconst
-func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool) map[string]string {
+func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool, image string) map[string]string {
 	config := map[string]string{}
 
 	if includeACL {
@@ -96,7 +98,8 @@ func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, host
 			config["tls-auth-clients"] = directive
 		}
 
-		if directive, ok := tls.AuthClientsUser.AuthClientsUserDirective(); ok {
+		if directive, ok := tls.AuthClientsUser.AuthClientsUserDirective(); ok &&
+			(tls.AuthClientsUser != valkeyiov1alpha1.TLSAuthClientsUserURI || valkey.MeetsMinVersion(effectiveImage(image), tlsAuthClientsUserURIMinVersion)) {
 			config["tls-auth-clients-user"] = directive
 		}
 	}
@@ -123,7 +126,7 @@ func renderConfig(config map[string]string) string {
 
 func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
 	hostname := node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname
-	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS, hostname))
+	return renderConfig(buildManagedConfig(node.Spec.UsersACLSecretName != "", node.Spec.TLS, hostname, node.Spec.Image))
 }
 
 // Return a base config of parameters that users shouldn't be able to override.
@@ -131,8 +134,8 @@ func generateValkeyNodeConfig(node *valkeyiov1alpha1.ValkeyNode) string {
 // controller and the ValkeyNode pod-template builders render identical bytes.
 //
 //nolint:goconst
-func getBaseConfig(tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool) map[string]string {
-	baseConfig := buildManagedConfig(true, tls, hostnameAnnounce)
+func getBaseConfig(tls *valkeyiov1alpha1.NodeTLSSpec, hostnameAnnounce bool, image string) map[string]string {
+	baseConfig := buildManagedConfig(true, tls, hostnameAnnounce, image)
 	maps.Copy(baseConfig, map[string]string{
 		"cluster-enabled":                 "yes",
 		"protected-mode":                  "no",
@@ -253,7 +256,7 @@ func renderServerConfig(userConfig, baseConfig map[string]string, excludeUserKey
 // buildServerConfig renders the full config written to the shared ConfigMap.
 func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
 	excludeKeys := gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)
-	return renderServerConfig(cluster.Spec.Config, getBaseConfig(nodeTLSFromCluster(cluster), cluster.PrefersHostnameAnnounce()), excludeKeys)
+	return renderServerConfig(cluster.Spec.Config, getBaseConfig(nodeTLSFromCluster(cluster), cluster.PrefersHostnameAnnounce(), cluster.Spec.Image), excludeKeys)
 }
 
 // nodeServerConfigRollHash derives the config roll hash from the node spec:
@@ -265,7 +268,7 @@ func buildServerConfig(cluster *valkeyiov1alpha1.ValkeyCluster) string {
 func nodeServerConfigRollHash(node *valkeyiov1alpha1.ValkeyNode) string {
 	excludedKeys := maps.Clone(liveConfigAllowlist)
 	maps.Copy(excludedKeys, gatedUserKeysToSuppress(node.Spec.Image, node.Spec.Config))
-	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS, node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname), excludedKeys)
+	rendered := renderServerConfig(node.Spec.Config, getBaseConfig(node.Spec.TLS, node.Spec.PreferredEndpointType == valkeyiov1alpha1.PreferredEndpointTypeHostname, node.Spec.Image), excludedKeys)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(rendered)))
 }
 

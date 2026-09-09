@@ -3185,8 +3185,9 @@ spec:
                     description: |-
                       AuthClientsUser configures how Valkey maps an authenticated client
                       certificate to an ACL user. Set to `CN` to use the certificate's Common
-                      Name, or `URI` to use the first matching URI from the certificate's Subject
-                      Alternative Name (SAN). Defaults to `Disabled`. Requires Valkey >= 9.0.0.
+                      Name (requires Valkey >= 9.0), or `URI` to use the first matching URI from the certificate's Subject
+                      Alternative Name (SAN) (requires Valkey >= 9.1).
+                      Defaults to `Disabled`, which leaves the directive unset.
                     enum:
                     - CN
                     - URI
@@ -3229,6 +3230,11 @@ spec:
                 required:
                 - certificates
                 type: object
+                x-kubernetes-validations:
+                - message: 'authClientsUser has no effect when authClients is Disabled:
+                    set authClients to Optional or Required to enable authClientsUser'
+                  rule: '!(has(self.authClients) && self.authClients == ''Disabled''
+                    && has(self.authClientsUser) && self.authClientsUser != ''Disabled'')'
               tolerations:
                 description: Tolerations defines the pod tolerations.
                 items:

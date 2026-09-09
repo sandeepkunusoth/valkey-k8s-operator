@@ -579,22 +579,61 @@ func TestBuildValkeyNodeConfigMap_WithManagedConfig(t *testing.T) {
 	assert.Contains(t, conf, "port 0")
 }
 
-func TestBuildValkeyNodeConfigMap_WithAuthClientsUserURI(t *testing.T) {
-	node := newTestValkeyNode("mynode", "test-ns")
-	node.Spec.TLS = &valkeyv1.NodeTLSSpec{
-		Certificates: valkeyv1.NodeTLSCertificates{
-			Server: valkeyv1.NodeCertificateRef{SecretName: "tls-secret"},
+func TestBuildValkeyNodeConfigMap_WithClientCertAuth(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		authClients     valkeyv1.TLSAuthClients
+		authClientsUser valkeyv1.TLSAuthClientsUser
+		image           string
+		want            []string
+		notWant         []string
+	}{
+		{
+			name:            "required with CN mapping",
+			authClients:     valkeyv1.TLSAuthClientsRequired,
+			authClientsUser: valkeyv1.TLSAuthClientsUserCN,
+			want:            []string{"tls-auth-clients yes", "tls-auth-clients-user CN"},
 		},
-		AuthClients:     valkeyv1.TLSAuthClientsRequired,
-		AuthClientsUser: valkeyv1.TLSAuthClientsUserURI,
+		{
+			name:            "required with URI mapping",
+			authClients:     valkeyv1.TLSAuthClientsRequired,
+			authClientsUser: valkeyv1.TLSAuthClientsUserURI,
+			image:           "valkey/valkey:9.1.0",
+			want:            []string{"tls-auth-clients yes", "tls-auth-clients-user URI"},
+		},
+		{
+			name:            "disabled drops client certificate processing",
+			authClients:     valkeyv1.TLSAuthClientsDisabled,
+			authClientsUser: valkeyv1.TLSAuthClientsUserDisabled,
+			want:            []string{"tls-auth-clients no"},
+			notWant:         []string{"tls-auth-clients-user"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := newTestValkeyNode("mynode", "test-ns")
+			if tc.image != "" {
+				node.Spec.Image = tc.image
+			}
+			node.Spec.TLS = &valkeyv1.NodeTLSSpec{
+				Certificates: valkeyv1.NodeTLSCertificates{
+					Server: valkeyv1.NodeCertificateRef{SecretName: "tls-secret"},
+				},
+				AuthClients:     tc.authClients,
+				AuthClientsUser: tc.authClientsUser,
+			}
+
+			cm, err := buildValkeyNodeConfigMap(node)
+			require.NoError(t, err)
+
+			conf := cm.Data["valkey.conf"]
+			for _, want := range tc.want {
+				assert.Contains(t, conf, want)
+			}
+			for _, notWant := range tc.notWant {
+				assert.NotContains(t, conf, notWant)
+			}
+		})
 	}
-
-	cm, err := buildValkeyNodeConfigMap(node)
-	require.NoError(t, err)
-
-	conf := cm.Data["valkey.conf"]
-	assert.Contains(t, conf, "tls-auth-clients yes")
-	assert.Contains(t, conf, "tls-auth-clients-user URI")
 }
 
 func TestBuildValkeyNodePodTemplateSpec_ConfigMapNameFallback(t *testing.T) {
