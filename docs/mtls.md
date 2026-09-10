@@ -69,7 +69,7 @@ Setting `clientAuth.certificateUser` to `CN` or `URI` while `clientAuth.mode` is
 | `URI` | `tls-auth-clients-user URI` |
 | `Disabled` | *(directive omitted)* |
 
-### Rendered directives
+### Rendered Valkey configuration (valkey.conf)
 
 ```text
 tls-auth-clients "yes"    # rendered from clientAuth.mode: Required
