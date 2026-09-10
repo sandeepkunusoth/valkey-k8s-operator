@@ -529,6 +529,22 @@ type TLSClientAuthSpec struct {
 	CertificateUser TLSAuthClientsUser `json:"certificateUser,omitempty"`
 }
 
+// EffectiveMode returns mode, defaulting to Optional when unset.
+func (s *TLSClientAuthSpec) EffectiveMode() TLSAuthClients {
+	if s == nil || s.Mode == "" {
+		return TLSAuthClientsOptional
+	}
+	return s.Mode
+}
+
+// EffectiveCertificateUser returns certificateUser, defaulting to Disabled when unset.
+func (s *TLSClientAuthSpec) EffectiveCertificateUser() TLSAuthClientsUser {
+	if s == nil || s.CertificateUser == "" {
+		return TLSAuthClientsUserDisabled
+	}
+	return s.CertificateUser
+}
+
 // TLSSpec defines the TLS configuration for ValkeyCluster.
 type TLSSpec struct {
 	// ServerName is the hostname used for TLS verification when the operator
@@ -550,20 +566,20 @@ type TLSSpec struct {
 	ClientAuth *TLSClientAuthSpec `json:"clientAuth,omitempty"`
 }
 
-// AuthClientsMode returns the effective client-auth mode for t.
-func (t *TLSSpec) AuthClientsMode() TLSAuthClients {
-	if t == nil || t.ClientAuth == nil || t.ClientAuth.Mode == "" {
+// ClientAuthMode returns the effective client-auth mode for t.
+func (t *TLSSpec) ClientAuthMode() TLSAuthClients {
+	if t == nil {
 		return TLSAuthClientsOptional
 	}
-	return t.ClientAuth.Mode
+	return t.ClientAuth.EffectiveMode()
 }
 
-// AuthClientsUserField returns the effective certificate-to-user mapping for t.
-func (t *TLSSpec) AuthClientsUserField() TLSAuthClientsUser {
-	if t == nil || t.ClientAuth == nil || t.ClientAuth.CertificateUser == "" {
+// ClientAuthCertificateUser returns the effective certificate-to-user mapping for t.
+func (t *TLSSpec) ClientAuthCertificateUser() TLSAuthClientsUser {
+	if t == nil {
 		return TLSAuthClientsUserDisabled
 	}
-	return t.ClientAuth.CertificateUser
+	return t.ClientAuth.EffectiveCertificateUser()
 }
 
 // TLSCertificates groups the certificate slots for a ValkeyCluster. Today

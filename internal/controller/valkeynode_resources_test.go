@@ -618,8 +618,10 @@ func TestBuildValkeyNodeConfigMap_WithClientCertAuth(t *testing.T) {
 				Certificates: valkeyv1.NodeTLSCertificates{
 					Server: valkeyv1.NodeCertificateRef{SecretName: "tls-secret"},
 				},
-				AuthClients:     tc.authClients,
-				AuthClientsUser: tc.authClientsUser,
+				ClientAuth: &valkeyv1.TLSClientAuthSpec{
+					Mode:            tc.authClients,
+					CertificateUser: tc.authClientsUser,
+				},
 			}
 
 			cm, err := buildValkeyNodeConfigMap(node)
@@ -853,7 +855,7 @@ func TestBuildExporterContainer(t *testing.T) {
 			Certificates: valkeyv1.NodeTLSCertificates{
 				Server: valkeyv1.NodeCertificateRef{SecretName: "my-tls-secret"},
 			},
-			AuthClients: valkeyv1.TLSAuthClientsRequired,
+			ClientAuth: &valkeyv1.TLSClientAuthSpec{Mode: valkeyv1.TLSAuthClientsRequired},
 		}
 
 		c := generateMetricsExporterContainerDef(exporter, "mycluster", tlsSpec)

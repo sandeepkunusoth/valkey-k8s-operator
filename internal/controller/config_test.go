@@ -111,15 +111,17 @@ var _ = Describe("TLS client auth admission rules", Label("tls", "cel"), func() 
 			ObjectMeta: metav1.ObjectMeta{Name: "cel-node-disabled-cn", Namespace: "default"},
 			Spec: valkeyiov1alpha1.ValkeyNodeSpec{
 				TLS: &valkeyiov1alpha1.NodeTLSSpec{
-					Certificates:    valkeyiov1alpha1.NodeTLSCertificates{Server: valkeyiov1alpha1.NodeCertificateRef{SecretName: "tls-secret"}},
-					AuthClients:     valkeyiov1alpha1.TLSAuthClientsDisabled,
-					AuthClientsUser: valkeyiov1alpha1.TLSAuthClientsUserCN,
+					Certificates: valkeyiov1alpha1.NodeTLSCertificates{Server: valkeyiov1alpha1.NodeCertificateRef{SecretName: "tls-secret"}},
+					ClientAuth: &valkeyiov1alpha1.TLSClientAuthSpec{
+						Mode:            valkeyiov1alpha1.TLSAuthClientsDisabled,
+						CertificateUser: valkeyiov1alpha1.TLSAuthClientsUserCN,
+					},
 				},
 			},
 		}
 		err := k8sClient.Create(ctx, node)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("authClientsUser has no effect when authClients is Disabled"))
+		Expect(err.Error()).To(ContainSubstring("certificateUser has no effect when mode=Disabled"))
 	})
 
 	It("accepts authClients=Required with authClientsUser=CN", func() {
@@ -148,8 +150,8 @@ var _ = Describe("TLS client auth admission rules", Label("tls", "cel"), func() 
 			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 		}()
 
-		Expect(cluster.Spec.Networking.TLS.AuthClientsMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
-		Expect(cluster.Spec.Networking.TLS.AuthClientsUserField()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+		Expect(cluster.Spec.Networking.TLS.ClientAuthMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+		Expect(cluster.Spec.Networking.TLS.ClientAuthCertificateUser()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
 	})
 })
 
@@ -370,6 +372,21 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		warnings := versionGateConfigWarnings(cluster)
 		Expect(warnings).To(HaveLen(1))
 		Expect(warnings[0].message).To(ContainSubstring("tls-auto-reload-interval"))
+		Expect(warnings[0].message).To(ContainSubstring("9.1.0"))
+		Expect(warnings[0].message).To(ContainSubstring("9.0.0"))
+	})
+
+	It("surfaces a warning for URI client auth on an unsupported Valkey version", func() {
+		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
+		cluster.Spec.Networking.TLS.ClientAuth = &valkeyiov1alpha1.TLSClientAuthSpec{
+			Mode:            valkeyiov1alpha1.TLSAuthClientsRequired,
+			CertificateUser: valkeyiov1alpha1.TLSAuthClientsUserURI,
+		}
+
+		warnings := versionGateConfigWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0].reason).To(Equal(valkeyiov1alpha1.ReasonUnsupportedConfigDirective))
+		Expect(warnings[0].message).To(ContainSubstring("spec.networking.tls.clientAuth.certificateUser=URI"))
 		Expect(warnings[0].message).To(ContainSubstring("9.1.0"))
 		Expect(warnings[0].message).To(ContainSubstring("9.0.0"))
 	})

@@ -64,8 +64,9 @@ func TestNodeTLSFromCluster(t *testing.T) {
 			},
 		})
 		require.NotNil(t, got)
-		assert.Equal(t, valkeyv1.TLSAuthClientsRequired, got.AuthClients)
-		assert.Equal(t, valkeyv1.TLSAuthClientsUserCN, got.AuthClientsUser)
+		require.NotNil(t, got.ClientAuth)
+		assert.Equal(t, valkeyv1.TLSAuthClientsRequired, got.ClientAuth.Mode)
+		assert.Equal(t, valkeyv1.TLSAuthClientsUserCN, got.ClientAuth.CertificateUser)
 	})
 
 	t.Run("default serverName uses clusterDomain", func(t *testing.T) {
