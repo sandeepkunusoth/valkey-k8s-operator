@@ -847,6 +847,22 @@ func TestBuildExporterContainer(t *testing.T) {
 		assert.Equal(t, tlsCertMountPath, c.VolumeMounts[0].MountPath)
 	})
 
+	t.Run("presents a client certificate when client auth is required", func(t *testing.T) {
+		exporter := valkeyv1.ExporterSpec{Enabled: boolPtr(true)}
+		tlsSpec := &valkeyv1.NodeTLSSpec{
+			Certificates: valkeyv1.NodeTLSCertificates{
+				Server: valkeyv1.NodeCertificateRef{SecretName: "my-tls-secret"},
+			},
+			AuthClients: valkeyv1.TLSAuthClientsRequired,
+		}
+
+		c := generateMetricsExporterContainerDef(exporter, "mycluster", tlsSpec)
+		assert.Equal(t, tlsCertMountPath+"/"+tlsSecretKeyCert,
+			getEnvVar(t, c.Env, "REDIS_EXPORTER_TLS_CLIENT_CERT_FILE").Value)
+		assert.Equal(t, tlsCertMountPath+"/"+tlsSecretKeyKey,
+			getEnvVar(t, c.Env, "REDIS_EXPORTER_TLS_CLIENT_KEY_FILE").Value)
+	})
+
 	t.Run("env contains tls server name when set", func(t *testing.T) {
 		exporter := valkeyv1.ExporterSpec{Enabled: boolPtr(true)}
 		tlsSpec := &valkeyv1.NodeTLSSpec{

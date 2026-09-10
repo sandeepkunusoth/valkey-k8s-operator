@@ -371,6 +371,9 @@ networking:
     certificates:
       server:
         secretName: valkey-tls
+    clientAuth:
+      mode: Optional             # Optional (default) | Required | Disabled
+      certificateUser: Disabled  # Disabled (default) | CN | URI
 ```
 
 #### Discovery (in-cluster announce)

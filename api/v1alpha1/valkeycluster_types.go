@@ -479,7 +479,7 @@ type TLSAuthClientsUser string
 
 const (
 	// TLSAuthClientsUserCN maps the certificate's Common Name (CN) to an
-	// ACL username. Pair with `AuthClients: Required` to enforce mTLS.
+	// ACL username. Pair with `clientAuth.mode: Required` to enforce mTLS.
 	// Requires Valkey >= 9.0.
 	TLSAuthClientsUserCN TLSAuthClientsUser = "CN"
 	// TLSAuthClientsUserURI maps the first URI from the certificate's
@@ -506,8 +506,30 @@ func (input TLSAuthClientsUser) AuthClientsUserDirective() (string, bool) {
 	return directive, ok
 }
 
+// TLSClientAuthSpec configures client certificate authentication for incoming
+// TLS connections.
+// +kubebuilder:validation:XValidation:rule="!(has(self.mode) && self.mode == 'Disabled' && has(self.certificateUser) && self.certificateUser != 'Disabled')",message="certificateUser has no effect when mode=Disabled: Valkey ignores client certificates in that mode"
+type TLSClientAuthSpec struct {
+	// Mode controls whether clients must authenticate with a TLS certificate.
+	// `Required` enforces mTLS, `Optional` allows both authenticated and
+	// unauthenticated clients, and `Disabled` turns client certificate processing
+	// off entirely.
+	// Defaults to `Optional`.
+	// +kubebuilder:default=Optional
+	// +optional
+	Mode TLSAuthClients `json:"mode,omitempty"`
+
+	// CertificateUser configures how Valkey maps an authenticated client
+	// certificate to an ACL user. Set to `CN` to use the certificate's Common Name
+	// (requires Valkey >= 9.0), or `URI` to use the first matching URI from the
+	// certificate's Subject Alternative Name (SAN) (requires Valkey >= 9.1).
+	// Defaults to `Disabled`, which leaves the directive unset.
+	// +kubebuilder:default=Disabled
+	// +optional
+	CertificateUser TLSAuthClientsUser `json:"certificateUser,omitempty"`
+}
+
 // TLSSpec defines the TLS configuration for ValkeyCluster.
-// +kubebuilder:validation:XValidation:rule="!(has(self.authClients) && self.authClients == 'Disabled' && has(self.authClientsUser) && self.authClientsUser != 'Disabled')",message="authClientsUser has no effect when authClients is Disabled: set authClients to Optional or Required to enable authClientsUser"
 type TLSSpec struct {
 	// ServerName is the hostname used for TLS verification when the operator
 	// connects to a node by pod IP. When unset, the operator uses
@@ -522,23 +544,26 @@ type TLSSpec struct {
 	// +kubebuilder:validation:Required
 	Certificates TLSCertificates `json:"certificates"`
 
-	// AuthClients controls whether clients must authenticate with a TLS
-	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
-	// and unauthenticated clients, and `Disabled` turns client certificate
-	// processing off entirely.
-	// Defaults to `Optional`.
-	// +kubebuilder:default=Optional
+	// ClientAuth configures client certificate authentication. When omitted,
+	// mode defaults to `Optional` and certificateUser defaults to `Disabled`.
 	// +optional
-	AuthClients TLSAuthClients `json:"authClients,omitempty"`
+	ClientAuth *TLSClientAuthSpec `json:"clientAuth,omitempty"`
+}
 
-	// AuthClientsUser configures how Valkey maps an authenticated client
-	// certificate to an ACL user. Set to `CN` to use the certificate's Common
-	// Name (requires Valkey >= 9.0), or `URI` to use the first matching URI from the certificate's Subject
-	// Alternative Name (SAN) (requires Valkey >= 9.1).
-	// Defaults to `Disabled`, which leaves the directive unset.
-	// +kubebuilder:default=Disabled
-	// +optional
-	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`
+// AuthClientsMode returns the effective client-auth mode for t.
+func (t *TLSSpec) AuthClientsMode() TLSAuthClients {
+	if t == nil || t.ClientAuth == nil || t.ClientAuth.Mode == "" {
+		return TLSAuthClientsOptional
+	}
+	return t.ClientAuth.Mode
+}
+
+// AuthClientsUserField returns the effective certificate-to-user mapping for t.
+func (t *TLSSpec) AuthClientsUserField() TLSAuthClientsUser {
+	if t == nil || t.ClientAuth == nil || t.ClientAuth.CertificateUser == "" {
+		return TLSAuthClientsUserDisabled
+	}
+	return t.ClientAuth.CertificateUser
 }
 
 // TLSCertificates groups the certificate slots for a ValkeyCluster. Today

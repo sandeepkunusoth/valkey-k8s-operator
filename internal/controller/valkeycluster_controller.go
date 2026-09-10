@@ -880,8 +880,8 @@ func nodeTLSFromCluster(cluster *valkeyiov1alpha1.ValkeyCluster) *valkeyiov1alph
 				SecretName: tlsSpec.Certificates.Server.SecretName,
 			},
 		},
-		AuthClients:     tlsSpec.AuthClients,
-		AuthClientsUser: tlsSpec.AuthClientsUser,
+		AuthClients:     tlsSpec.AuthClientsMode(),
+		AuthClientsUser: tlsSpec.AuthClientsUserField(),
 	}
 }
 
@@ -1007,7 +1007,7 @@ func (r *ValkeyClusterReconciler) getValkeyClusterState(ctx context.Context, clu
 	var tlsConfig *tls.Config
 	if tlsSpec := cluster.GetTLS(); tlsSpec != nil && tlsSpec.Certificates.Server.SecretName != "" {
 		serverName := tlsServerName(tlsSpec.ServerName, cluster.Name, cluster.Namespace, cluster.GetClusterDomain())
-		cfg, err := getTLSConfig(ctx, r.APIReader, tlsSpec.Certificates.Server.SecretName, serverName, cluster.Namespace)
+		cfg, err := getTLSConfig(ctx, r.APIReader, tlsSpec.Certificates.Server.SecretName, serverName, cluster.Namespace, tlsSpec.AuthClientsMode() == valkeyiov1alpha1.TLSAuthClientsRequired)
 		if err != nil {
 			logf.FromContext(ctx).Error(err, "failed to build TLS config for cluster state, falling back to plaintext",
 				"secretName", tlsSpec.Certificates.Server.SecretName)

@@ -193,6 +193,18 @@ type NodeTLSSpec struct {
 	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`
 }
 
+// RequiresClientCertificate reports whether TLS clients must present a certificate.
+func (t *NodeTLSSpec) RequiresClientCertificate() bool {
+	if t == nil {
+		return false
+	}
+	mode := t.AuthClients
+	if mode == "" {
+		mode = TLSAuthClientsOptional
+	}
+	return mode == TLSAuthClientsRequired
+}
+
 // NodeTLSCertificates groups the certificate slots for a ValkeyNode.
 type NodeTLSCertificates struct {
 	// Server is the node identity presented to clients and peers, and the
