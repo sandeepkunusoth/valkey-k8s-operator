@@ -58,8 +58,7 @@ func TestNodeTLSFromCluster(t *testing.T) {
 						Certificates: valkeyv1.TLSCertificates{
 							Server: valkeyv1.CertificateSource{SecretName: "valkey-server-tls"},
 						},
-						AuthClients:     valkeyv1.TLSAuthClientsRequired,
-						AuthClientsUser: valkeyv1.TLSAuthClientsUserCN,
+						ClientAuth: &valkeyv1.TLSClientAuthSpec{Mode: valkeyv1.TLSAuthClientsRequired, CertificateUser: valkeyv1.TLSAuthClientsUserCN},
 					},
 				},
 			},

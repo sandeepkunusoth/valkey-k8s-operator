@@ -1,19 +1,19 @@
 # Mutual TLS (mTLS) certificate-based ACL authentication
 
-`networking.tls.authClients` and `networking.tls.authClientsUser` build on the [TLS Configuration](valkeycluster.md#tls) so that:
+`networking.tls.clientAuth` builds on the [TLS configuration](valkeycluster.md#tls) so that:
 
 1. Clients can be required to present a TLS certificate (mTLS), and
 2. Authenticated clients can be automatically logged in as a Valkey ACL user matching the certificate's Common Name (CN) or URI SAN.
 
-> `authClientsUser: CN` requires Valkey >= 9.0; `authClientsUser: URI` requires Valkey >= 9.1.
+> `certificateUser: CN` requires Valkey >= 9.0; `certificateUser: URI` requires Valkey >= 9.1.
 
 ## Valkey defaults vs operator defaults for mTLS
 
 By default, Valkey uses mutual TLS and requires clients to present a valid certificate verified against trusted root CAs configured via `tls-ca-cert-file` or `tls-ca-cert-dir`. You may use `tls-auth-clients no` to disable client authentication.
 
-Valkey requires client certificates on a TLS port by default. The operator does not: when `networking.tls.authClients` is unset, it renders `tls-auth-clients optional`, so a TLS client may connect without presenting a certificate. This keeps existing TLS clusters working and makes enabling mTLS an explicit opt-in.
+Valkey requires client certificates on a TLS port by default. The operator does not: when `clientAuth` is omitted, it renders `tls-auth-clients optional`, so a TLS client may connect without presenting a certificate. This keeps existing TLS clusters working and makes enabling mTLS an explicit opt-in.
 
-`authClientsUser` defaults to `Disabled`, which leaves the directive out of `valkey.conf` entirely rather than rendering `off`. `tls-auth-clients-user` does not exist before Valkey 9.0, and its default is already `off`, so omitting it keeps older servers starting without changing behaviour.
+`certificateUser` defaults to `Disabled`, which leaves the directive out of `valkey.conf` entirely rather than rendering `off`. `tls-auth-clients-user` does not exist before Valkey 9.0, and its default is already `off`, so omitting it keeps older servers starting without changing behaviour.
 
 ## Quick start
 
@@ -30,8 +30,9 @@ spec:
       certificates:
         server:
           secretName: valkey-server-tls
-      authClients: Required
-      authClientsUser: CN
+      clientAuth:
+        mode: Required
+        certificateUser: CN
   users:
     - name: alice
       enabled: true
@@ -39,43 +40,43 @@ spec:
       permissions: "+@all ~app:* &events:*"
 ```
 
-With `authClients: Required` + `authClientsUser: CN`, any TLS client whose certificate has `CN=alice` is automatically authenticated as the ACL user `alice` -- no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
+With `clientAuth.mode: Required` and `clientAuth.certificateUser: CN`, a client whose certificate carries `CN=alice` is authenticated as the ACL user `alice` during the TLS handshake, with no `AUTH` command required. Pass `resetpass: true` with this configuration so authentication relies exclusively on the client certificate.
 
-With `authClients: Required`, Valkey requires a valid client certificate at the TLS handshake, but that does not disable password-based ACL authentication. Clients can still authenticate with `AUTH` as long as they present a client certificate signed by the configured CA. Today operator user, health check probes, redis exporter all present the server certificate to satisfy this.
+`clientAuth.mode: Required` does not disable password authentication. It requires a valid client certificate at the TLS handshake; clients can still run `AUTH` when they present a certificate signed by the configured CA.
 
 ## Configuration
 
 | Field | Values | Default | Description |
 |---|---|---|---|
-| `authClients` | `Required`, `Optional`, `Disabled` | `Optional` | Whether clients must present a certificate signed by the configured CA. |
-| `authClientsUser` | `CN`, `URI`, `Disabled` | `Disabled` | Which certificate field selects the ACL user. |
+| `clientAuth.mode` | `Required`, `Optional`, `Disabled` | `Optional` | Whether clients must present a certificate signed by the configured CA. |
+| `clientAuth.certificateUser` | `CN`, `URI`, `Disabled` | `Disabled` | Which certificate field selects the ACL user. |
 
-`authClientsUser: CN` or `authClientsUser: URI` has no effect when `authClients: Disabled` (Valkey ignores client certificates entirely), so this combination is rejected at admission time.
+Setting `clientAuth.certificateUser` to `CN` or `URI` while `clientAuth.mode` is `Disabled` is rejected at admission time: Valkey ignores client certificates in that mode, so the mapping would silently do nothing.
 
-### `authClients` values
+### `clientAuth.mode` values
 
-`authClients` API values are mapped to Valkey `tls-auth-clients` directive values when the operator renders the config.
+`clientAuth.mode` API values are mapped to Valkey `tls-auth-clients` directive values when the operator renders the config.
 
-| `authClients` | Rendered | Meaning |
+| `clientAuth.mode` | Rendered | Meaning |
 |---|---|---|
 | `Optional` | `tls-auth-clients optional` | Default. Both authenticated and unauthenticated TLS clients are allowed. |
 | `Required` | `tls-auth-clients yes` | Enforces mTLS -- clients without a valid client certificate are rejected at the TLS handshake. |
 | `Disabled` | `tls-auth-clients no` | Client certificates are ignored entirely. |
 
-| `authClientsUser` | Rendered |
+| `clientAuth.certificateUser` | Rendered |
 |---|---|
 | `CN` | `tls-auth-clients-user CN` |
 | `URI` | `tls-auth-clients-user URI` |
 | `Disabled` | *(directive omitted)* |
 
-### Rendered Valkey configuration (valkey.conf)
+### Rendered directives
 
 ```text
-tls-auth-clients "yes"    # rendered from authClients: Required
-tls-auth-clients-user CN/URI   # rendered from authClientsUser: CN or authClientsUser: URI
+tls-auth-clients "yes"    # rendered from clientAuth.mode: Required
+tls-auth-clients-user CN/URI   # rendered from clientAuth.certificateUser: CN or clientAuth.certificateUser: URI
 ```
 
-The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, etc.) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md#tls).
+The rest of the rendered TLS block (`tls-port`, `tls-cluster yes`, `tls-replication yes`, and the certificate paths) is unchanged from the existing TLS feature documented in [valkeycluster.md](./valkeycluster.md#tls).
 
 ## Issuing certificates with cert-manager
 
@@ -137,15 +138,17 @@ valkey-cli \
 
 ## Operator-managed connections
 
-The operator, readiness and liveness probes, and metrics exporter all connect over the same TLS port and present the node's **server** certificate as their client certificate. That satisfies `authClients: Required`.
+When `clientAuth.mode` is `Required`, the operator, readiness and liveness probes, and metrics exporter present the node's **server** certificate as their client certificate so the TLS handshake succeeds.
 
-With `authClientsUser: CN`, the server certificate CN is the node FQDN, which does not name an ACL user. Valkey connects these clients as the unauthenticated default user and they then authenticate with `AUTH` as usual. Certificate mapping is therefore additive: it never has to succeed for operator-managed connections to work. You do not need to create an ACL user named after the server CN.
+When `clientAuth.mode` is `Optional` or `Disabled`, those connections do not present a client certificate. With `clientAuth.certificateUser: CN` or `URI`, presenting the server certificate would map its CN or URI to an ACL user, so the operator avoids sending one unless client certificates are required.
+
+With `clientAuth.certificateUser: CN`, a presented server certificate CN is the node FQDN, which does not name an ACL user. Operator-managed connections therefore authenticate with `AUTH` as usual after the TLS handshake.
 
 ## Security considerations
 
 ### Do not use `nopass` on a certificate-mapped user
 
-`nopass: true` lets any client run `AUTH <user> <any-password>` and succeed, whether or not it holds the matching client certificate. This is still true under `authClients: Required`: any client with a valid CA-signed certificate, regardless of its CN or URI, can then authenticate as any `nopass` user.
+`nopass: true` lets any client run `AUTH <user> <any-password>` and succeed, whether or not it holds the matching client certificate. Under `clientAuth.mode: Required`, any client with a valid CA-signed certificate can then authenticate as any `nopass` user.
 
 Set `resetpass: true` instead. That clears every password and disables `nopass`, so password authentication is impossible and the CN or URI from the client certificate becomes the only way to authenticate as that user.
 

@@ -178,13 +178,13 @@ spec:
 			Expect(output).To(Equal("/tls"))
 		})
 
-		It("defaults spec.tls.authClients to Optional when omitted and renders tls-auth-clients optional", func() {
+		It("defaults spec.tls.clientAuth.mode to Optional when omitted and renders tls-auth-clients optional", func() {
 			cr, err := utils.GetValkeyClusterStatus(valkeyClusterName)
 			Expect(err).NotTo(HaveOccurred())
 			tls := cr.GetTLS()
 			Expect(tls).NotTo(BeNil())
-			Expect(tls.AuthClients).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
-			Expect(tls.AuthClientsUser).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+			Expect(tls.AuthClientsMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+			Expect(tls.AuthClientsUserField()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
 
 			cmd := exec.Command("kubectl", "get", "configmap",
 				fmt.Sprintf("valkey-%s", valkeyClusterName),
@@ -579,8 +579,9 @@ spec:
       certificates:
         server:
           secretName: %s
-      authClients: Required
-      authClientsUser: CN
+      clientAuth:
+        mode: Required
+        certificateUser: CN
   users:
     - name: alice
       enabled: true
@@ -675,8 +676,8 @@ spec:
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsClientPodName, "--ignore-not-found=true"))
 	})
 
-	// Verifies that primary <-> replica replication works under authClients=Required.
-	It("replicates data from primary to replica when mTLS authClients is enabled", func() {
+	// Verifies that primary <-> replica replication works under clientAuth.mode=Required.
+	It("replicates data from primary to replica when mTLS client auth is enabled", func() {
 		// get the primary pod by querying ValkeyNode status.role == "primary".
 		var primaryPod string
 		Eventually(func(g Gomega) {
@@ -746,7 +747,7 @@ spec:
 		_, err = utils.Run(exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", mtlsNoCertPodName),
 			"--for=jsonpath={.status.phase}=Failed", "--timeout=120s"))
 		Expect(err).NotTo(HaveOccurred(),
-			"client without a certificate should fail under authClients=Required")
+			"client without a certificate should fail under clientAuth.mode=Required")
 
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", mtlsNoCertPodName, "--ignore-not-found=true"))
 	})
