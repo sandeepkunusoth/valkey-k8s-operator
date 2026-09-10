@@ -158,7 +158,6 @@ type ValkeyNodeSpec struct {
 // ValkeyCluster TLSSpec: the cluster API expresses user intent whereas this
 // API is the resolved view the node controller renders into valkey.conf and
 // volume mounts.
-// +kubebuilder:validation:XValidation:rule="!(has(self.authClients) && self.authClients == 'Disabled' && has(self.authClientsUser) && self.authClientsUser != 'Disabled')",message="authClientsUser has no effect when authClients is Disabled: set authClients to Optional or Required to enable authClientsUser"
 type NodeTLSSpec struct {
 	// ServerName is the hostname used for TLS verification when connecting
 	// to the pod IP. For cluster-owned nodes this is
@@ -174,35 +173,33 @@ type NodeTLSSpec struct {
 	// +kubebuilder:validation:Required
 	Certificates NodeTLSCertificates `json:"certificates"`
 
-	// AuthClients controls whether clients must authenticate with a TLS
-	// certificate. `Required` enforces mTLS, `Optional` allows both authenticated
-	// and unauthenticated clients, and `Disabled` turns client certificate
-	// processing off entirely.
-	// Defaults to `Optional`.
-	// +kubebuilder:default=Optional
+	// ClientAuth is the resolved client certificate authentication settings
+	// rendered into `tls-auth-clients` and `tls-auth-clients-user`. For
+	// cluster-owned nodes the ValkeyCluster controller copies
+	// spec.networking.tls.clientAuth here.
 	// +optional
-	AuthClients TLSAuthClients `json:"authClients,omitempty"`
+	ClientAuth *TLSClientAuthSpec `json:"clientAuth,omitempty"`
+}
 
-	// AuthClientsUser configures how Valkey maps an authenticated client
-	// certificate to an ACL user. Set to `CN` to use the certificate's Common
-	// Name (requires Valkey >= 9.0), or `URI` to use the first matching URI from the certificate's Subject
-	// Alternative Name (SAN) (requires Valkey >= 9.1).
-	// Defaults to `Disabled`, which leaves the directive unset.
-	// +kubebuilder:default=Disabled
-	// +optional
-	AuthClientsUser TLSAuthClientsUser `json:"authClientsUser,omitempty"`
+// ClientAuthMode returns the effective client-auth mode for t.
+func (t *NodeTLSSpec) ClientAuthMode() TLSAuthClients {
+	if t == nil {
+		return TLSAuthClientsOptional
+	}
+	return t.ClientAuth.EffectiveMode()
+}
+
+// ClientAuthCertificateUser returns the effective certificate-to-user mapping for t.
+func (t *NodeTLSSpec) ClientAuthCertificateUser() TLSAuthClientsUser {
+	if t == nil {
+		return TLSAuthClientsUserDisabled
+	}
+	return t.ClientAuth.EffectiveCertificateUser()
 }
 
 // RequiresClientCertificate reports whether TLS clients must present a certificate.
 func (t *NodeTLSSpec) RequiresClientCertificate() bool {
-	if t == nil {
-		return false
-	}
-	mode := t.AuthClients
-	if mode == "" {
-		mode = TLSAuthClientsOptional
-	}
-	return mode == TLSAuthClientsRequired
+	return t.ClientAuthMode() == TLSAuthClientsRequired
 }
 
 // NodeTLSCertificates groups the certificate slots for a ValkeyNode.

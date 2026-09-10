@@ -111,15 +111,17 @@ var _ = Describe("TLS client auth admission rules", Label("tls", "cel"), func() 
 			ObjectMeta: metav1.ObjectMeta{Name: "cel-node-disabled-cn", Namespace: "default"},
 			Spec: valkeyiov1alpha1.ValkeyNodeSpec{
 				TLS: &valkeyiov1alpha1.NodeTLSSpec{
-					Certificates:    valkeyiov1alpha1.NodeTLSCertificates{Server: valkeyiov1alpha1.NodeCertificateRef{SecretName: "tls-secret"}},
-					AuthClients:     valkeyiov1alpha1.TLSAuthClientsDisabled,
-					AuthClientsUser: valkeyiov1alpha1.TLSAuthClientsUserCN,
+					Certificates: valkeyiov1alpha1.NodeTLSCertificates{Server: valkeyiov1alpha1.NodeCertificateRef{SecretName: "tls-secret"}},
+					ClientAuth: &valkeyiov1alpha1.TLSClientAuthSpec{
+						Mode:            valkeyiov1alpha1.TLSAuthClientsDisabled,
+						CertificateUser: valkeyiov1alpha1.TLSAuthClientsUserCN,
+					},
 				},
 			},
 		}
 		err := k8sClient.Create(ctx, node)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("authClientsUser has no effect when authClients is Disabled"))
+		Expect(err.Error()).To(ContainSubstring("certificateUser has no effect when mode=Disabled"))
 	})
 
 	It("accepts authClients=Required with authClientsUser=CN", func() {
@@ -148,8 +150,8 @@ var _ = Describe("TLS client auth admission rules", Label("tls", "cel"), func() 
 			Expect(k8sClient.Delete(ctx, cluster)).To(Succeed())
 		}()
 
-		Expect(cluster.Spec.Networking.TLS.AuthClientsMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
-		Expect(cluster.Spec.Networking.TLS.AuthClientsUserField()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+		Expect(cluster.Spec.Networking.TLS.ClientAuthMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+		Expect(cluster.Spec.Networking.TLS.ClientAuthCertificateUser()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
 	})
 })
 

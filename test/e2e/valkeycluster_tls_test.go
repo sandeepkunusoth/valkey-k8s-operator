@@ -183,8 +183,8 @@ spec:
 			Expect(err).NotTo(HaveOccurred())
 			tls := cr.GetTLS()
 			Expect(tls).NotTo(BeNil())
-			Expect(tls.AuthClientsMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
-			Expect(tls.AuthClientsUserField()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
+			Expect(tls.ClientAuthMode()).To(Equal(valkeyiov1alpha1.TLSAuthClientsOptional))
+			Expect(tls.ClientAuthCertificateUser()).To(Equal(valkeyiov1alpha1.TLSAuthClientsUserDisabled))
 
 			cmd := exec.Command("kubectl", "get", "configmap",
 				fmt.Sprintf("valkey-%s", valkeyClusterName),
