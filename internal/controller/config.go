@@ -54,7 +54,13 @@ var versionGatedConfig = map[string]*semver.Version{
 	"tls-auto-reload-interval": semver.MustParse("9.1.0-rc1"),
 }
 
-var tlsAuthClientsUserURIMinVersion = semver.MustParse("9.1.0")
+// tlsAuthClientsUserMinVersion lists client certificate-to-user mappings that
+// need a newer Valkey release. Values absent from this map have no additional
+// version requirement.
+// TODO make this generic enough to fetch from enum values https://github.com/valkey-io/valkey-operator/issues/423
+var tlsAuthClientsUserMinVersion = map[valkeyiov1alpha1.TLSAuthClientsUser]*semver.Version{
+	valkeyiov1alpha1.TLSAuthClientsUserURI: semver.MustParse("9.1.0"),
+}
 
 //go:embed scripts/*
 var scripts embed.FS
@@ -96,7 +102,7 @@ func buildManagedConfig(includeACL bool, tls *valkeyiov1alpha1.NodeTLSSpec, host
 
 		certificateUser := tls.ClientAuthCertificateUser()
 		if directive, ok := certificateUser.AuthClientsUserDirective(); ok &&
-			(certificateUser != valkeyiov1alpha1.TLSAuthClientsUserURI || valkey.MeetsMinVersion(effectiveImage(image), tlsAuthClientsUserURIMinVersion)) {
+			clientAuthUserSupported(certificateUser, effectiveImage(image)) {
 			config["tls-auth-clients-user"] = directive
 		}
 	}
@@ -169,14 +175,11 @@ func liveConfigToApply(config map[string]string) map[string]string {
 	return out
 }
 
-// versionGateConfigWarnings returns warnings when user-set directives are not
-// supported by the detected Valkey version. It reports exactly the directives
-// the renderer drops.
+// versionGateConfigWarnings returns warnings when user-set configuration or TLS
+// features are not supported by the detected Valkey version. It reports exactly
+// the settings the renderer drops.
 func versionGateConfigWarnings(cluster *valkeyiov1alpha1.ValkeyCluster) []configWarning {
 	droppedKeys := gatedUserKeysToSuppress(cluster.Spec.Image, cluster.Spec.Config)
-	if len(droppedKeys) == 0 {
-		return nil
-	}
 
 	image := effectiveImage(cluster.Spec.Image)
 	imageSource := "spec.image"
@@ -189,7 +192,7 @@ func versionGateConfigWarnings(cluster *valkeyiov1alpha1.ValkeyCluster) []config
 		versionDetail = fmt.Sprintf("detected %s from %s %q", version, imageSource, image)
 	}
 
-	warnings := make([]configWarning, 0, len(droppedKeys))
+	warnings := make([]configWarning, 0, len(droppedKeys)+1)
 	for _, key := range slices.Sorted(maps.Keys(droppedKeys)) {
 		minVersion := versionGatedConfig[key]
 		warnings = append(warnings, configWarning{
@@ -198,7 +201,25 @@ func versionGateConfigWarnings(cluster *valkeyiov1alpha1.ValkeyCluster) []config
 		})
 	}
 
+	if tls := cluster.GetTLS(); tls != nil {
+		certificateUser := tls.ClientAuthCertificateUser()
+		if minVersion, requiresVersion := tlsAuthClientsUserMinVersion[certificateUser]; requiresVersion &&
+			!valkey.MeetsMinVersion(image, minVersion) {
+			warnings = append(warnings, configWarning{
+				reason:  valkeyiov1alpha1.ReasonUnsupportedConfigDirective,
+				message: fmt.Sprintf("spec.networking.tls.clientAuth.certificateUser=%s requires Valkey %s+, %s", certificateUser, minVersion, versionDetail),
+			})
+		}
+	}
+
 	return warnings
+}
+
+// clientAuthUserSupported reports whether the selected certificate-to-user
+// mapping is supported by image.
+func clientAuthUserSupported(user valkeyiov1alpha1.TLSAuthClientsUser, image string) bool {
+	minVersion, requiresVersion := tlsAuthClientsUserMinVersion[user]
+	return !requiresVersion || valkey.MeetsMinVersion(image, minVersion)
 }
 
 // gatedUserKeysToSuppress returns user-set directives that should be omitted

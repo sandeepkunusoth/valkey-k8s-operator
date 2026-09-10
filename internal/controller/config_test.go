@@ -376,6 +376,21 @@ var _ = Describe("TLS auto reload interval", Label("tls-auto-reload"), func() {
 		Expect(warnings[0].message).To(ContainSubstring("9.0.0"))
 	})
 
+	It("surfaces a warning for URI client auth on an unsupported Valkey version", func() {
+		cluster := newTLSCluster("valkey/valkey:9.0.0", nil)
+		cluster.Spec.Networking.TLS.ClientAuth = &valkeyiov1alpha1.TLSClientAuthSpec{
+			Mode:            valkeyiov1alpha1.TLSAuthClientsRequired,
+			CertificateUser: valkeyiov1alpha1.TLSAuthClientsUserURI,
+		}
+
+		warnings := versionGateConfigWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0].reason).To(Equal(valkeyiov1alpha1.ReasonUnsupportedConfigDirective))
+		Expect(warnings[0].message).To(ContainSubstring("spec.networking.tls.clientAuth.certificateUser=URI"))
+		Expect(warnings[0].message).To(ContainSubstring("9.1.0"))
+		Expect(warnings[0].message).To(ContainSubstring("9.0.0"))
+	})
+
 	It("versionGateConfigWarnings says so when the detected version cannot be determined", func() {
 		cluster := newTLSCluster("valkey/valkey:latest", map[string]string{
 			"tls-auto-reload-interval": "3600",
